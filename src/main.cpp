@@ -1,5 +1,6 @@
 #include <iostream>
 
-int main(int, char**){
+int main(int, char **)
+{
     std::cout << "Hello, from castlemist!\n";
 }

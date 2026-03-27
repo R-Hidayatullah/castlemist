@@ -23,6 +23,7 @@ build/
 out/
 _deps/
 Testing/
+external/
 
 # ======================
 # CLion / JetBrains
