@@ -64,3 +64,16 @@ castlemist_add_test(db
 castlemist_add_test(media
     SOURCES test_media_audio.cpp
     DEPS    castlemist::media)
+
+castlemist_add_test(extract
+    SOURCES test_extract_classify.cpp
+            test_extract_summary.cpp
+    DEPS    castlemist::extract
+    PRIVATE_HEADERS "${PROJECT_SOURCE_DIR}/src/extract")
+
+# End-to-end extraction against a real Gw2.dat. Skips itself when the archive is
+# absent, so it is safe to leave enabled; GW2_TEST_DAT overrides the location.
+castlemist_add_test(dat
+    SOURCES test_extract_dat.cpp
+    DEPS    castlemist::extract)
+set_tests_properties(dat PROPERTIES TIMEOUT 600)

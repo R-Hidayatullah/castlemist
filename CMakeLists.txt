@@ -88,6 +88,9 @@ castlemist_add_layer(media  DEPS castlemist::core castlemist::native
                                  ext::drlibs ext::stb ext::bink2
                                  winmm version)
 
+castlemist_add_layer(extract DEPS castlemist::format castlemist::media
+                                  castlemist::native)
+
 
 # -----------------------------------------------------------------------------
 # Tests and documentation
