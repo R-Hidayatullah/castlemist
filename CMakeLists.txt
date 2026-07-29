@@ -82,6 +82,9 @@ castlemist_add_layer(format DEPS castlemist::core castlemist::native
                                  ext::jpegturbo ext::webp ext::stb
                                  windowscodecs ole32 oleaut32 uuid)
 
+castlemist_add_layer(db     DEPS castlemist::core ext::sqlite)
+
+
 # -----------------------------------------------------------------------------
 # Tests and documentation
 # -----------------------------------------------------------------------------
