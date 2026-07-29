@@ -43,3 +43,10 @@ endfunction()
 castlemist_add_test(native
     SOURCES test_native_method0.cpp
     DEPS    castlemist::native)
+
+castlemist_add_test(core
+    SOURCES test_core_bytes.cpp
+            test_core_packfile.cpp
+            test_core_text.cpp
+            test_core_env.cpp
+    DEPS    castlemist::core)

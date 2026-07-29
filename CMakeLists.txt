@@ -76,6 +76,8 @@ message(STATUS "castlemist: layer kind   = ${CASTLEMIST_LAYER_KIND}")
 
 castlemist_add_layer(native DEPS ext::json)
 
+castlemist_add_layer(core   DEPS castlemist::native)
+
 # -----------------------------------------------------------------------------
 # Tests and documentation
 # -----------------------------------------------------------------------------
