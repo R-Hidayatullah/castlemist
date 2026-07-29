@@ -78,6 +78,10 @@ castlemist_add_layer(native DEPS ext::json)
 
 castlemist_add_layer(core   DEPS castlemist::native)
 
+castlemist_add_layer(format DEPS castlemist::core castlemist::native
+                                 ext::jpegturbo ext::webp ext::stb
+                                 windowscodecs ole32 oleaut32 uuid)
+
 # -----------------------------------------------------------------------------
 # Tests and documentation
 # -----------------------------------------------------------------------------
