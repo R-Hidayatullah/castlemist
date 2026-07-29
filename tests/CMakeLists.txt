@@ -81,3 +81,8 @@ set_tests_properties(dat PROPERTIES TIMEOUT 600)
 castlemist_add_test(sim
     SOURCES test_sim_cloth.cpp
     DEPS    castlemist::sim)
+
+castlemist_add_test(render
+    SOURCES test_render_math.cpp
+    DEPS    castlemist::render
+    PRIVATE_HEADERS "${PROJECT_SOURCE_DIR}/src/render")

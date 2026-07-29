@@ -95,6 +95,9 @@ castlemist_add_layer(extract DEPS castlemist::format castlemist::media
 # types: the solver is fed a ModelMeshCPU straight out of model extraction.
 castlemist_add_layer(sim    DEPS castlemist::extract ext::glm)
 
+castlemist_add_layer(render DEPS castlemist::extract castlemist::sim
+                                 d3d11 dxgi d3dcompiler dxguid)
+
 
 # -----------------------------------------------------------------------------
 # Tests and documentation
