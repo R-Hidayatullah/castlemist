@@ -65,6 +65,7 @@ if (CASTLEMIST_WARNINGS_AS_ERRORS AND (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
 endif()
 
 include(Layers)
+include(Externals)
 
 message(STATUS "castlemist: build type   = ${CMAKE_BUILD_TYPE}")
 message(STATUS "castlemist: layer kind   = ${CASTLEMIST_LAYER_KIND}")
@@ -73,7 +74,7 @@ message(STATUS "castlemist: layer kind   = ${CASTLEMIST_LAYER_KIND}")
 # Layers (bottom-up). Each one arrives with its own tests; see docs/architecture.md.
 # -----------------------------------------------------------------------------
 
-# (none yet -- the stack is built up one layer per commit)
+castlemist_add_layer(native DEPS ext::json)
 
 # -----------------------------------------------------------------------------
 # Tests and documentation
