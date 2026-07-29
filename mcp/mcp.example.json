@@ -1,0 +1,41 @@
+{
+  "_comment": [
+    "Copy to .mcp.json at the repository root and replace every path below.",
+    "The real file is gitignored: it holds absolute paths that are true only on",
+    "the machine that wrote it.",
+    "",
+    "Before this works: pip install -r mcp/gw2dat/requirements.txt, and",
+    "cmake --build --preset debug --target gw2dat_cli gw2index"
+  ],
+
+  "mcpServers": {
+    "gw2dat": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["C:\\path\\to\\castlemist\\mcp\\gw2dat\\server.py"],
+      "env": {
+        "GW2_DAT_PATH": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat",
+        "GW2_LOCAL_DAT_PATH": "C:\\Users\\<you>\\AppData\\Roaming\\Guild Wars 2\\Local.dat"
+      }
+    },
+
+    "gw2index": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["C:\\path\\to\\castlemist\\mcp\\gw2index\\server.py"],
+      "env": {
+        "GW2_INDEX_DB": "C:\\path\\to\\castlemist\\dumps\\index\\gw2_index.db"
+      }
+    },
+
+    "renderdoc": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["C:\\path\\to\\castlemist\\mcp\\renderdoc\\server.py"],
+      "env": {
+        "RDMCP_QRENDERDOC": "C:\\Program Files\\RenderDoc\\qrenderdoc.exe",
+        "RDMCP_CAPTURE": "C:\\path\\to\\castlemist\\dumps\\captures\\sample1.rdc"
+      }
+    }
+  }
+}
