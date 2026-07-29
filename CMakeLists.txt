@@ -91,6 +91,10 @@ castlemist_add_layer(media  DEPS castlemist::core castlemist::native
 castlemist_add_layer(extract DEPS castlemist::format castlemist::media
                                   castlemist::native)
 
+# sim sits beside render rather than under it, but it does need extract's mesh
+# types: the solver is fed a ModelMeshCPU straight out of model extraction.
+castlemist_add_layer(sim    DEPS castlemist::extract ext::glm)
+
 
 # -----------------------------------------------------------------------------
 # Tests and documentation

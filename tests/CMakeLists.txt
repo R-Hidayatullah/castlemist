@@ -77,3 +77,7 @@ castlemist_add_test(dat
     SOURCES test_extract_dat.cpp
     DEPS    castlemist::extract)
 set_tests_properties(dat PROPERTIES TIMEOUT 600)
+
+castlemist_add_test(sim
+    SOURCES test_sim_cloth.cpp
+    DEPS    castlemist::sim)
