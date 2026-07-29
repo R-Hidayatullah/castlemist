@@ -50,3 +50,7 @@ $RECYCLE.BIN/
 # ======================
 *.log
 *.tmp
+
+*.json
+*.db
+*.exe
