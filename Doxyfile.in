@@ -1,0 +1,101 @@
+# Doxygen configuration for castlemist (processed by cmake/Docs.cmake).
+
+PROJECT_NAME           = "castlemist"
+PROJECT_NUMBER         = "@PROJECT_VERSION@"
+PROJECT_BRIEF          = "@PROJECT_DESCRIPTION@"
+OUTPUT_DIRECTORY       = "@CASTLEMIST_DOXYGEN_OUTPUT@"
+
+# ---- input ------------------------------------------------------------------
+INPUT                  = @CASTLEMIST_DOXYGEN_INPUT@
+USE_MDFILE_AS_MAINPAGE = "@CASTLEMIST_DOXYGEN_MAINPAGE@"
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.hpp *.c *.cpp *.md
+EXCLUDE                = "@PROJECT_SOURCE_DIR@/build" \
+                         "@PROJECT_SOURCE_DIR@/third_party/obj" \
+                         "@PROJECT_SOURCE_DIR@/third_party/lib"
+# A layer's private headers (`detail/`, `internal.h`) are seams between its own
+# .cpp files, not API. They are described in prose in docs/architecture.md;
+# indexing them here would bury the public surface under hundreds of entries.
+EXCLUDE_PATTERNS       = */build/* */.git/* */detail/* */internal.h
+STRIP_FROM_PATH        = "@PROJECT_SOURCE_DIR@"
+STRIP_FROM_INC_PATH    = "@PROJECT_SOURCE_DIR@/include"
+
+# ---- what to document -------------------------------------------------------
+# The public headers carry the documentation; .cpp files are indexed so that
+# "where is this implemented" works, but their file-local helpers are not part
+# of the API surface.
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+EXTRACT_LOCAL_CLASSES  = NO
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+INTERNAL_DOCS          = NO
+
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MULTILINE_CPP_IS_BRIEF = NO
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+TAB_SIZE               = 4
+OPTIMIZE_OUTPUT_FOR_C  = NO
+BUILTIN_STL_SUPPORT    = YES
+DISTRIBUTE_GROUP_DOC   = YES
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+# ---- diagnostics ------------------------------------------------------------
+# Warn about anything public that is missing or mis-documented, but do not fail
+# the build: `docs` is a convenience target, not a gate.
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = NO
+WARN_LOGFILE           = "@CASTLEMIST_DOXYGEN_OUTPUT@/doxygen-warnings.log"
+
+# ---- preprocessing ----------------------------------------------------------
+# Windows headers are not on the Doxygen include path; parse the declarations
+# as written and predefine just enough to keep the parser happy.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+SEARCH_INCLUDES        = YES
+INCLUDE_PATH           = "@PROJECT_SOURCE_DIR@/include"
+PREDEFINED             = UNICODE=1 \
+                         _UNICODE=1 \
+                         _WIN32=1 \
+                         __cplusplus=202002L \
+                         "CM_TEST(a,b)=void a##_##b()"
+
+# ---- output -----------------------------------------------------------------
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_DYNAMIC_SECTIONS  = YES
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+DISABLE_INDEX          = NO
+SEARCHENGINE           = YES
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+
+# ---- graphs -----------------------------------------------------------------
+# Text-only fallbacks when Graphviz is absent; dot graphs when it is present.
+HAVE_DOT               = @DOXYGEN_DOT_FOUND@
+DOT_PATH               = "@DOXYGEN_DOT_EXECUTABLE@"
+COLLABORATION_GRAPH    = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+DOT_GRAPH_MAX_NODES    = 60
+
+# ---- source browsing --------------------------------------------------------
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = NO
+VERBATIM_HEADERS       = YES
