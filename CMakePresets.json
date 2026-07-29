@@ -1,0 +1,98 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "mingw-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+
+    {
+      "name": "debug",
+      "displayName": "Debug (DLL layers, fast relink)",
+      "description": "Every layer is its own DLL, so a one-file edit relinks one DLL.",
+      "inherits": "mingw-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CASTLEMIST_SHARED_LAYERS": "ON",
+        "CASTLEMIST_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "relwithdebinfo",
+      "displayName": "RelWithDebInfo (DLL layers, optimised + symbols)",
+      "inherits": "mingw-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CASTLEMIST_SHARED_LAYERS": "ON",
+        "CASTLEMIST_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (one self-contained exe)",
+      "description": "Static layers and a static libstdc++: castlemist.exe ships alone.",
+      "inherits": "mingw-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CASTLEMIST_SHARED_LAYERS": "OFF",
+        "CASTLEMIST_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "minsizerel",
+      "displayName": "MinSizeRel (smallest self-contained exe)",
+      "inherits": "mingw-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel",
+        "CASTLEMIST_SHARED_LAYERS": "OFF",
+        "CASTLEMIST_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "ci",
+      "displayName": "CI (static, warnings are errors, tests on)",
+      "inherits": "mingw-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CASTLEMIST_SHARED_LAYERS": "OFF",
+        "CASTLEMIST_BUILD_TESTS": "ON",
+        "CASTLEMIST_WARNINGS_AS_ERRORS": "ON"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "debug",          "configurePreset": "debug" },
+    { "name": "relwithdebinfo", "configurePreset": "relwithdebinfo" },
+    { "name": "release",        "configurePreset": "release" },
+    { "name": "minsizerel",     "configurePreset": "minsizerel" },
+    { "name": "ci",             "configurePreset": "ci" }
+  ],
+
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

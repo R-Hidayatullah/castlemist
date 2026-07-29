@@ -1,6 +1,52 @@
-# ======================
-# CMake generated files
-# ======================
+# =============================================================================
+# castlemist -- ignore rules
+#
+# Two directories are deliberately kept out of history:
+#
+#   external/   third-party library checkouts (see external/README.md for the
+#               exact list and where each one comes from). Hundreds of MB of
+#               code maintained elsewhere; only the few hand-written glue
+#               headers castlemist owns are tracked.
+#
+#   dumps/      everything the tools under tools/ generate from a local
+#               Gw2.dat: the SQLite index, packfile struct JSON, shader and
+#               strs dumps, RenderDoc captures. Generate your own -- see
+#               dumps/README.md.
+# =============================================================================
+
+# ---------------------------------------------------------------- externals --
+external/*
+!external/README.md
+!external/jpegcfg/
+!external/bink2-2.7d/
+
+# -------------------------------------------------------------------- dumps --
+dumps/*
+!dumps/README.md
+!dumps/*/
+dumps/*/*
+!dumps/*/.gitkeep
+
+# ---------------------------------------------------------- build artefacts --
+build/
+build*/
+out/
+_deps/
+Testing/
+/bin/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.res
+
+# CMake in-source droppings
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
@@ -11,46 +57,42 @@ install_manifest.txt
 compile_commands.json
 CMakeUserPresets.json
 
-# User-specific files
+# ---------------------------------------------------------------- generated --
+docs/html/
+docs/latex/
+docs/Doxyfile
+
+# ------------------------------------------------------------------- python --
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# ---------------------------------------------------------------- local only --
+# Real MCP wiring holds absolute paths to this machine; mcp/mcp.example.json is
+# the tracked template.
+.mcp.json
 *.user
 *.swp
 *.swo
+*.log
+*.tmp
+*.bak
+*.orig
+*-bak
 
-# ======================
-# Build directories
-# ======================
-build/
-out/
-_deps/
-Testing/
-external/
-
-# ======================
-# CLion / JetBrains
-# ======================
+# ---------------------------------------------------------------------- IDE --
 .idea/
 *.iml
 *.iws
+.vs/
+.vscode/
 
-# ======================
-# OS-specific
-# ======================
-# macOS
+# ----------------------------------------------------------------------- OS --
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# Windows
 Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
-
-# ======================
-# Logs
-# ======================
-*.log
-*.tmp
-
-*.json
-*.db
-*.exe
