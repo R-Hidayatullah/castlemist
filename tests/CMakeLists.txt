@@ -86,3 +86,8 @@ castlemist_add_test(render
     SOURCES test_render_math.cpp
     DEPS    castlemist::render
     PRIVATE_HEADERS "${PROJECT_SOURCE_DIR}/src/render")
+
+castlemist_add_test(ui
+    SOURCES test_ui_layout.cpp
+    DEPS    castlemist::ui
+    PRIVATE_HEADERS "${PROJECT_SOURCE_DIR}/src/ui")

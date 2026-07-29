@@ -98,6 +98,9 @@ castlemist_add_layer(sim    DEPS castlemist::extract ext::glm)
 castlemist_add_layer(render DEPS castlemist::extract castlemist::sim
                                  d3d11 dxgi d3dcompiler dxguid)
 
+castlemist_add_layer(ui     DEPS castlemist::render castlemist::db castlemist::extract
+                                 comctl32 comdlg32 shell32 user32 gdi32 advapi32)
+
 
 # -----------------------------------------------------------------------------
 # Tests and documentation
