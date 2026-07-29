@@ -103,6 +103,15 @@ castlemist_add_layer(ui     DEPS castlemist::render castlemist::db castlemist::e
 
 
 # -----------------------------------------------------------------------------
+# Application
+# -----------------------------------------------------------------------------
+
+file(GLOB_RECURSE APP_SRCS CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/src/app/*.cpp")
+add_executable(castlemist WIN32 ${APP_SRCS})
+target_link_libraries(castlemist PRIVATE castlemist::ui)
+castlemist_link_runtime(castlemist)
+
+# -----------------------------------------------------------------------------
 # Tests and documentation
 # -----------------------------------------------------------------------------
 
