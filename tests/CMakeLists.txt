@@ -60,3 +60,7 @@ castlemist_add_test(format
 castlemist_add_test(db
     SOURCES test_db_index.cpp
     DEPS    castlemist::db ext::sqlite)
+
+castlemist_add_test(media
+    SOURCES test_media_audio.cpp
+    DEPS    castlemist::media)

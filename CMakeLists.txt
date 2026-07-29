@@ -84,6 +84,10 @@ castlemist_add_layer(format DEPS castlemist::core castlemist::native
 
 castlemist_add_layer(db     DEPS castlemist::core ext::sqlite)
 
+castlemist_add_layer(media  DEPS castlemist::core castlemist::native
+                                 ext::drlibs ext::stb ext::bink2
+                                 winmm version)
+
 
 # -----------------------------------------------------------------------------
 # Tests and documentation
