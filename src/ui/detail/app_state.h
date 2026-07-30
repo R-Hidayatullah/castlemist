@@ -173,6 +173,7 @@ constexpr UINT_PTR ID_EFFECTS_TOGGLE = 2065;
 constexpr UINT_PTR ID_LIGHT_SLIDER = 2081;   // model light intensity trackbar
 constexpr UINT_PTR ID_LIGHT_ANGLE = 2090;    // model headlight angle trackbar
 constexpr UINT_PTR ID_LIGHT_FOLLOW = 2091;   // "follow camera" (headlight) toggle
+constexpr UINT_PTR ID_LIGHT_GW2RIG = 2092;   // "GW2 rig" -- the game's own preview light rig
 constexpr UINT_PTR ID_CONTENT_ASSET_LIST = 2082; // cntc entry asset selector (sortable table)
 // Blender-style transform gizmo controls (single-model surface).
 constexpr UINT_PTR ID_GIZMO_MOVE = 2083;
@@ -319,6 +320,7 @@ struct AppState {
     HWND hwnd_light_slider = nullptr;  // model light-intensity trackbar (Full/Plain)
     HWND hwnd_light_angle = nullptr;   // headlight angle trackbar (behind-cam .. grazing)
     HWND hwnd_light_follow = nullptr;  // "Follow cam" headlight toggle
+    HWND hwnd_light_gw2rig = nullptr;  // "GW2 rig" -- game's own preview lighting
     HWND hwnd_submesh_combo = nullptr; // LOD/texture target: "All submeshes" + each submesh
     HWND hwnd_lod_combo = nullptr;     // LOD level selector
     HWND hwnd_tex_reduced = nullptr;   // reduced (half-res) texture toggle

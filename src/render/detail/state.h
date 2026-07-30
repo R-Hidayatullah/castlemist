@@ -131,6 +131,17 @@ inline float g_light_intensity = 1.0f;
 inline bool  g_light_follow = false;
 inline float g_light_angle  = 0.22f;
 
+// Single-model (skin) view: light it with GW2's OWN preview rig -- the fixed
+// 8-light studio table the client's Equipment Preview / paper-doll windows use --
+// instead of a hand-calibrated stand-in. See detail/preview_rig.h.
+//
+// ON by default: it is what the game actually does for exactly this case (a lone
+// character/skin on a neutral backdrop), and it is verified byte-for-byte against
+// a capture, so it is strictly better grounded than any value we could pick.
+// Only applies when no map env rig is in force -- map scenes keep their real env
+// chunk lighting, which is equally what the game does for them.
+inline bool g_preview_rig = true;
+
 // "Toward-light" unit vector (world) for the headlight. The camera looks along
 // +Z (eye on -Z), so angle 0 = (0,0,-1) straight at the front; increasing the
 // angle lifts the light up and over so the front falls into shadow.

@@ -3,6 +3,8 @@
 
 #include "detail/state.h"
 
+#include "detail/preview_rig.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -10,6 +12,37 @@
 #include <cstring>
 
 namespace castlemist::render {
+
+// Uploads the SH rig into g_lightCB for PSLight. The values come from g_game_vals
+// -- the SAME shRed/shGreen/shBlue/shSun/shSunColor the forward game materials
+// bind -- so the deferred light buffer and the forward materials run one
+// consistent lighting model off one rig. Falls back to GW2's own preview rig
+// (detail/preview_rig.h) if a name is somehow missing, rather than to invented
+// numbers. Shared by the single-model and map-scene prepasses so the two cannot
+// drift apart.
+static void upload_sh_light_cb() {
+    if (!g_lightCB) return;
+    const PreviewRigUniforms d = eval_preview_rig();
+    float sh[24] = {0};
+    auto put = [&](int i, const char* n, const float* def) {
+        float v[4] = {def[0], def[1], def[2], def[3]};
+        auto it = g_game_vals.find(n);
+        if (it != g_game_vals.end())
+            for (size_t k = 0; k < 4 && k < it->second.size(); ++k) v[k] = it->second[k];
+        for (int k = 0; k < 4; ++k) sh[i * 4 + k] = v[k];
+    };
+    put(0, "shRed", d.shRed);
+    put(1, "shGreen", d.shGreen);
+    put(2, "shBlue", d.shBlue);
+    put(3, "shSun", d.shSun);
+    put(4, "shSunColor", d.shSunColor);
+    sh[20] = kLightBufferEncode;  // encParams.x -- pairs with the LightBuffer decode
+    D3D11_MAPPED_SUBRESOURCE lms;
+    if (SUCCEEDED(g_ctx->Map(g_lightCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &lms))) {
+        std::memcpy(lms.pData, sh, sizeof sh);
+        g_ctx->Unmap(g_lightCB.Get(), 0);
+    }
+}
 
 void set_lightprepass(bool on) { g_lightprepass_on = on; }
 bool lightprepass() { return g_lightprepass_on; }
@@ -28,6 +61,12 @@ void set_light_angle(float v) {
     if (g_game_uniforms_ready) apply_env_uniforms();
 }
 float light_angle() { return g_light_angle; }
+
+void set_preview_rig(bool on) {
+    g_preview_rig = on;
+    if (g_game_uniforms_ready) apply_env_uniforms();
+}
+bool preview_rig() { return g_preview_rig; }
 
 
 void post_process_relight() {
@@ -94,30 +133,7 @@ void render_light_prepass(ID3D11Buffer* vbUse) {
         g_ctx->Unmap(g_cb.Get(), 0);
     }
 
-    // Refill the SH lighting cbuffer from the shared rig (g_game_vals) so the light
-    // buffer PSLight uses the exact same shRed/shGreen/shBlue/shSun/shSunColor the
-    // forward-lit materials bind -- one consistent, game-accurate SH lighting model.
-    if (g_lightCB) {
-        float sh[24] = {0};
-        auto put = [&](int i, const char* n, float a, float b, float c, float d) {
-            float v[4] = {a, b, c, d};
-            auto it = g_game_vals.find(n);
-            if (it != g_game_vals.end())
-                for (size_t k = 0; k < 4 && k < it->second.size(); ++k) v[k] = it->second[k];
-            sh[i * 4] = v[0]; sh[i * 4 + 1] = v[1]; sh[i * 4 + 2] = v[2]; sh[i * 4 + 3] = v[3];
-        };
-        put(0, "shRed", 0, 0.10f, 0, 0.32f);
-        put(1, "shGreen", 0, 0.11f, 0, 0.35f);
-        put(2, "shBlue", 0, 0.13f, 0, 0.40f);
-        put(3, "shSun", 0.45f, 0.80f, 0.40f, 0);
-        put(4, "shSunColor", 0.92f, 0.86f, 0.79f, 1);
-        sh[20] = kLightBufferEncode;  // encParams.x -- pairs with the LightBuffer decode
-        D3D11_MAPPED_SUBRESOURCE lms;
-        if (SUCCEEDED(g_ctx->Map(g_lightCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &lms))) {
-            std::memcpy(lms.pData, sh, sizeof sh);
-            g_ctx->Unmap(g_lightCB.Get(), 0);
-        }
-    }
+    upload_sh_light_cb();
 
     D3D11_VIEWPORT vp{0, 0, static_cast<float>(g_w), static_cast<float>(g_h), 0, 1};
     const float bf[4] = {0, 0, 0, 0};
@@ -260,28 +276,7 @@ void debug_dump_light_buffer() {
 void render_scene_light_prepass(const Mat4& sceneRot, const Mat4& VP) {
     if (!g_nrmRTV || !g_lightRTV || !g_nrmVs || !g_nrmPs || !g_lightVs || !g_lightPs) return;
 
-    // SH lighting cbuffer (identical rig to the single-model prepass).
-    if (g_lightCB) {
-        float sh[24] = {0};
-        auto put = [&](int i, const char* n, float a, float b, float c, float d) {
-            float v[4] = {a, b, c, d};
-            auto it = g_game_vals.find(n);
-            if (it != g_game_vals.end())
-                for (size_t k = 0; k < 4 && k < it->second.size(); ++k) v[k] = it->second[k];
-            sh[i * 4] = v[0]; sh[i * 4 + 1] = v[1]; sh[i * 4 + 2] = v[2]; sh[i * 4 + 3] = v[3];
-        };
-        put(0, "shRed", 0, 0.10f, 0, 0.32f);
-        put(1, "shGreen", 0, 0.11f, 0, 0.35f);
-        put(2, "shBlue", 0, 0.13f, 0, 0.40f);
-        put(3, "shSun", 0.45f, 0.80f, 0.40f, 0);
-        put(4, "shSunColor", 0.92f, 0.86f, 0.79f, 1);
-        sh[20] = kLightBufferEncode;  // encParams.x -- pairs with the LightBuffer decode
-        D3D11_MAPPED_SUBRESOURCE lms;
-        if (SUCCEEDED(g_ctx->Map(g_lightCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &lms))) {
-            std::memcpy(lms.pData, sh, sizeof sh);
-            g_ctx->Unmap(g_lightCB.Get(), 0);
-        }
-    }
+    upload_sh_light_cb();   // identical rig to the single-model prepass
 
     D3D11_VIEWPORT vp{0, 0, static_cast<float>(g_w), static_cast<float>(g_h), 0, 1};
     const float bf[4] = {0, 0, 0, 0};

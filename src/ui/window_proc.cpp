@@ -445,6 +445,14 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         SendMessageW(g_app->hwnd_light_angle, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
         SendMessageW(g_app->hwnd_light_angle, TBM_SETPOS, TRUE,
                      static_cast<LPARAM>(castlemist::render::light_angle() * 100.0f));
+        // "GW2 rig": light a lone skin with the game's own Equipment-Preview light
+        // rig (8-light studio table read out of the client, verified against a
+        // capture) instead of our calibrated daylight stand-in. On by default.
+        g_app->hwnd_light_gw2rig =
+            CreateWindowExW(0, L"BUTTON", L"GW2 rig", WS_CHILD | BS_AUTOCHECKBOX | BS_PUSHLIKE, 0, 0, 0, 0, hwnd,
+                            reinterpret_cast<HMENU>(ID_LIGHT_GW2RIG), g_hinstance, nullptr);
+        SendMessageW(g_app->hwnd_light_gw2rig, BM_SETCHECK,
+                     castlemist::render::preview_rig() ? BST_CHECKED : BST_UNCHECKED, 0);
         // LOD + texture-size controls (single model, second toolbar row): pick the
         // target submesh ("All" = overall), its LOD level, and full/reduced texture.
         g_app->hwnd_submesh_combo =
@@ -1184,6 +1192,12 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         case ID_LIGHT_FOLLOW: {
             bool on = SendMessageW(g_app->hwnd_light_follow, BM_GETCHECK, 0, 0) == BST_CHECKED;
             castlemist::render::set_light_follow(on);
+            InvalidateRect(g_app->hwnd_model, nullptr, FALSE);
+            return 0;
+        }
+        case ID_LIGHT_GW2RIG: {
+            bool on = SendMessageW(g_app->hwnd_light_gw2rig, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            castlemist::render::set_preview_rig(on);
             InvalidateRect(g_app->hwnd_model, nullptr, FALSE);
             return 0;
         }

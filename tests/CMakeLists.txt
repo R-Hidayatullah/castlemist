@@ -83,7 +83,7 @@ castlemist_add_test(sim
     DEPS    castlemist::sim)
 
 castlemist_add_test(render
-    SOURCES test_render_math.cpp
+    SOURCES test_render_math.cpp test_render_preview_rig.cpp
     DEPS    castlemist::render
     PRIVATE_HEADERS "${PROJECT_SOURCE_DIR}/src/render")
 

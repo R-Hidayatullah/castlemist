@@ -112,6 +112,20 @@ bool light_follow();
 void set_light_angle(float v);   // 0..1
 float light_angle();
 
+/// Light a lone model/skin with GW2's OWN preview rig -- the fixed 8-light studio
+/// setup its Equipment Preview and paper-doll windows use (the game does not light
+/// those from the map either; it builds a private scene and forces this rig plus a
+/// constant backlight). Reproduced from the client and verified against a capture
+/// to 2e-5, so it is the game-accurate answer for a single model rather than a
+/// tuned approximation. Feeds both the forward GameShader materials and the
+/// deferred light pre-pass, so the two stay consistent.
+///
+/// ON by default. Only applies when no map env rig is active -- map scenes keep
+/// their real `env` chunk lighting. Turn it off to fall back to the previous
+/// hand-calibrated daylight stand-in.
+void set_preview_rig(bool on);
+bool preview_rig();
+
 /// Environment lighting rig for the GameShader (real DXBC) path: drives the sun +
 /// SH-ambient uniforms of the game's own lighting shader from a real map's `env`
 /// chunk (MapEnvRig), so a model/skin is lit by e.g. Lion's Arch's actual light
