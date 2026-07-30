@@ -6,11 +6,13 @@
 #include "castlemist/core/text.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cwchar>
 #include <commdlg.h>
 #include <fstream>
 #include <thread>
 
+#include "castlemist/db/index_builder.h"
 #include "castlemist/format/struct_template.h"
 #include "castlemist/format/strs_keys.h"
 
@@ -131,6 +133,118 @@ void do_open_loose_file(HWND hwnd) {
     else
         swprintf(st, MAX_PATH + 96, L"%ls - %zu bytes", name, shown);
     SetWindowTextW(g_app->hwnd_status_label, st);
+}
+
+// ---- index building -------------------------------------------------------
+//
+// A cold index is ~800k entries, every one decompressed far enough to learn its
+// real type, so this runs for minutes and cannot go anywhere near the UI thread.
+// The worker owns the build; it reports by posting messages, and stops when the
+// cancel flag flips. The thread is detached and the flag lives in a namespace
+// scope so the app can ask it to stop and then exit without joining.
+std::atomic<bool> g_index_cancel{false};
+std::atomic<bool> g_index_running{false};
+std::wstring g_index_out_path;
+std::string g_index_error;
+
+void do_build_index(HWND hwnd) {
+    if (g_index_running.load()) {
+        // Second invocation while a build is live means "stop", which is the only
+        // sensible reading -- there is nothing else the menu item could do now.
+        g_index_cancel.store(true);
+        SetWindowTextW(g_app->hwnd_status_label, L"Index build: cancelling...");
+        return;
+    }
+
+    // Source archive: reuse the open one so the common case is two clicks, but
+    // still allow indexing a .dat that is not currently loaded.
+    std::wstring dat_w;
+    if (g_app->dat_loaded && !g_app->data_gw2.file_info.file_path.empty()) {
+        const std::string& p = g_app->data_gw2.file_info.file_path;
+        dat_w.assign(p.begin(), p.end());
+    } else {
+        wchar_t path[MAX_PATH] = L"";
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = hwnd;
+        ofn.lpstrFilter = L"Guild Wars 2 Archive (*.dat)\0*.dat\0All Files\0*.*\0";
+        ofn.lpstrFile = path;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+        if (!GetOpenFileNameW(&ofn)) return;
+        dat_w = path;
+    }
+
+    wchar_t out[MAX_PATH] = L"gw2_index.db";
+    OPENFILENAMEW sfn{};
+    sfn.lStructSize = sizeof(sfn);
+    sfn.hwndOwner = hwnd;
+    sfn.lpstrFilter = L"Index database (*.db)\0*.db\0All Files\0*.*\0";
+    sfn.lpstrFile = out;
+    sfn.nMaxFile = MAX_PATH;
+    sfn.lpstrTitle = L"Save index database as";
+    sfn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+    if (!GetSaveFileNameW(&sfn)) return;
+
+    auto narrow = [](const std::wstring& w) {
+        std::string s;
+        int len = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (len > 0) { s.resize(static_cast<size_t>(len) - 1);
+                       WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, s.data(), len, nullptr, nullptr); }
+        return s;
+    };
+
+    castlemist::db::BuildOptions opt;
+    opt.dat_path = narrow(dat_w);
+    opt.db_path = narrow(out);
+    // Reuse the struct template if one is loaded. Without it the index still
+    // builds, it just cannot name each chunk's struct variant -- worth saying so
+    // rather than silently producing a thinner index than the CLI would.
+    opt.template_path = castlemist::tpl::source_path();
+
+    g_index_out_path = out;
+    g_index_error.clear();
+    g_index_cancel.store(false);
+    g_index_running.store(true);
+
+    if (opt.template_path.empty())
+        SetWindowTextW(g_app->hwnd_status_label,
+                       L"Index build started (no struct template - chunk variants will be blank)...");
+    else
+        SetWindowTextW(g_app->hwnd_status_label, L"Index build started...");
+
+    std::thread([hwnd, opt]() {
+        auto on_progress = [hwnd](const castlemist::db::BuildProgress& p) {
+            PostMessageW(hwnd, WM_APP_INDEX_PROGRESS,
+                         static_cast<WPARAM>(p.processed + p.skipped), static_cast<LPARAM>(p.total));
+        };
+        std::string err;
+        bool ok = castlemist::db::build_index(opt, on_progress, &g_index_cancel, err);
+        g_index_error = ok ? std::string() : err;
+        g_index_running.store(false);
+        PostMessageW(hwnd, WM_APP_INDEX_DONE, ok ? 1 : 0, 0);
+    }).detach();
+}
+
+void on_index_build_done(HWND hwnd, bool ok) {
+    if (!ok) {
+        std::wstring msg = L"Index build failed.";
+        if (!g_index_error.empty()) {
+            msg += L"\n\n";
+            msg.append(g_index_error.begin(), g_index_error.end());
+        }
+        SetWindowTextW(g_app->hwnd_status_label, L"Index build failed.");
+        MessageBoxW(hwnd, msg.c_str(), L"castlemist", MB_ICONERROR | MB_OK);
+        return;
+    }
+    if (g_index_cancel.load()) {
+        SetWindowTextW(g_app->hwnd_status_label,
+                       L"Index build cancelled - partial index saved, re-run to resume.");
+        return;
+    }
+    SetWindowTextW(g_app->hwnd_status_label, L"Index build finished.");
+    if (MessageBoxW(hwnd, L"Index built. Open it now?", L"castlemist", MB_ICONQUESTION | MB_YESNO) == IDYES)
+        load_index_path(hwnd, g_index_out_path.c_str());
 }
 
 void do_load_template(HWND hwnd) {

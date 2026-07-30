@@ -20,6 +20,7 @@ HMENU build_menu() {
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_OPEN, L"&Open .dat...");
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_OPEN_INDEX, L"Open &Index DB... (gw2index/gw2local)");
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_OPEN_LOOSE, L"Open &File... (outside a .dat)");
+    AppendMenuW(g_file_menu, MF_STRING, ID_FILE_BUILD_INDEX, L"&Build Index DB from .dat...");
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_LOAD_TEMPLATE, L"Load Struct &JSON... (gw2_packfile.json)");
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_LOAD_KEYS, L"Load String &Keys... (textkeys.csv)");
     AppendMenuW(g_file_menu, MF_SEPARATOR, 0, nullptr);
@@ -850,6 +851,23 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         }
         return 0;
     }
+    case WM_APP_INDEX_PROGRESS: {
+        // Posted from the build worker. Keep this cheap: it arrives every 500 rows
+        // and the status label is the only thing that needs to change.
+        size_t done = static_cast<size_t>(wparam);
+        size_t total = static_cast<size_t>(lparam);
+        wchar_t st[160];
+        if (total > 0)
+            swprintf(st, 160, L"Building index: %zu / %zu entries (%.0f%%) - File > Build Index to cancel",
+                     done, total, 100.0 * (double)done / (double)total);
+        else
+            swprintf(st, 160, L"Building index: %zu entries", done);
+        SetWindowTextW(g_app->hwnd_status_label, st);
+        return 0;
+    }
+    case WM_APP_INDEX_DONE:
+        on_index_build_done(hwnd, wparam != 0);
+        return 0;
     case WM_APP_EXTRACT_DONE: {
         std::unique_ptr<ExtractResult> result(reinterpret_cast<ExtractResult*>(lparam));
         if (g_app == nullptr || result->generation != g_app->request_generation) {
@@ -874,6 +892,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             return 0;
         case ID_FILE_OPEN_LOOSE:
             do_open_loose_file(hwnd);
+            return 0;
+        case ID_FILE_BUILD_INDEX:
+            do_build_index(hwnd);
             return 0;
         case ID_FILE_OPEN_INDEX:
             do_open_index(hwnd);
