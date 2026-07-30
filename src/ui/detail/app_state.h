@@ -356,11 +356,10 @@ inline HFONT g_ui_font_bold = nullptr;
 // Cross-file entry points, grouped by the file that defines them.
 // ---------------------------------------------------------------------------
 
-// ---- theme.cpp -- palette, fonts and the Common-Controls v6 activation context
+// ---- theme.cpp -- palettes, fonts and the shared brush cache
 HBRUSH theme_brush(COLORREF c);
 void ensure_ui_fonts();
 BOOL CALLBACK apply_font_cb(HWND child, LPARAM font);
-void enable_visual_styles();
 
 // ---- listview_util.cpp -- report-view ListView helpers
 void lv_add_col(HWND lv, int i, const wchar_t* text, int width);

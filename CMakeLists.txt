@@ -103,12 +103,24 @@ castlemist_add_layer(ui     DEPS castlemist::render castlemist::db castlemist::e
 
 
 # -----------------------------------------------------------------------------
-# Application
+# Resources: the icon, the version block and the manifest
+#
+# Compiled with an explicit custom command rather than by adding the .rc to the
+# target, because MinGW's windres assembles its preprocessor invocation as an
+# unquoted shell string. CMake would hand it every include directory of the
+# target, and the first one containing a space -- which, on Windows, is most of
+# them -- kills the preprocessor with a "not recognized as an internal or
+# external command" that names half a path. Here windres gets no -I and no -D
+# at all: the version and the asset paths are substituted into the .rc at
+# configure time instead.
 # -----------------------------------------------------------------------------
 
+include(Resources)
+
 file(GLOB_RECURSE APP_SRCS CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/src/app/*.cpp")
-add_executable(castlemist WIN32 ${APP_SRCS})
+add_executable(castlemist WIN32 ${APP_SRCS} ${CASTLEMIST_RES_OBJ})
 target_link_libraries(castlemist PRIVATE castlemist::ui)
+target_include_directories(castlemist PRIVATE "${PROJECT_SOURCE_DIR}/src/app")
 castlemist_link_runtime(castlemist)
 
 # -----------------------------------------------------------------------------

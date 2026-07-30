@@ -99,3 +99,7 @@ venv/
 Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Generated branding intermediates (the .ico itself IS tracked -- it is what
+# the resource compiler links, and regenerating it needs Pillow).
+docs/assets/*.tmp.png

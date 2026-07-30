@@ -28,7 +28,8 @@ namespace castlemist::ui {
 int run(HINSTANCE hInstance, int cmd_show) {
     g_hinstance = hInstance;
 
-    enable_visual_styles(); // modern themed common controls (before they're created)
+    // Themed common controls and DPI awareness now come from the manifest
+    // embedded by src/app/castlemist.rc.in, which applies before this runs.
     ensure_ui_fonts();
 
     INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX),
@@ -60,12 +61,23 @@ int run(HINSTANCE hInstance, int cmd_show) {
     model_class.lpszClassName = kModelClassName;
     RegisterClassExW(&model_class);
 
+    // The icon is resource 1 in castlemist.exe (see src/app/resource.h).
+    // LoadIconW picks the size Windows asks for out of the multi-size .ico, so
+    // the title bar gets the 16px artwork and Alt-Tab the 32px one -- each
+    // drawn for that size rather than scaled down from 256.
+    HICON app_icon = LoadIconW(hInstance, MAKEINTRESOURCEW(1));
+    HICON app_icon_small = static_cast<HICON>(
+        LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+                   GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0));
+
     WNDCLASSEXW main_class{};
     main_class.cbSize = sizeof(main_class);
     main_class.style = CS_HREDRAW | CS_VREDRAW;
     main_class.lpfnWndProc = MainWndProc;
     main_class.hInstance = hInstance;
     main_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    main_class.hIcon = app_icon;
+    main_class.hIconSm = app_icon_small ? app_icon_small : app_icon;
     main_class.hbrBackground = theme_brush(kColBg);
     main_class.lpszClassName = kMainClassName;
     RegisterClassExW(&main_class);
