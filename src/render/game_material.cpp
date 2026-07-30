@@ -3,6 +3,8 @@
 
 #include "detail/state.h"
 
+#include "detail/preview_rig.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -193,9 +195,49 @@ UINT game_sem_off(const char* s, UINT idx) {
 
 void apply_env_uniforms() {
     auto put = [&](const char* n, std::initializer_list<float> f) { g_game_vals[n] = std::vector<float>(f); };
+    auto put4 = [&](const char* n, const float* f) { g_game_vals[n] = std::vector<float>(f, f + 4); };
     float lit = 1.0f;
     if (const char* e = std::getenv("GW2_LIGHT")) { double v = std::atof(e); if (v > 0.01) lit = static_cast<float>(v); }
     const MapEnvRig& r = g_env_rig;
+
+    // --- Single model / skin with no map env rig: use GW2's OWN preview lighting.
+    //
+    // This is the case the game itself special-cases. Its Equipment Preview and
+    // paper-doll widgets do not light the character from the map at all -- they
+    // build a private scene and a fixed 8-light studio rig baked into the .exe
+    // (detail/preview_rig.h), then override the backlight globals on top. Feeding
+    // those exact values here means a skin in castlemist is lit by the same numbers
+    // the client sends its own preview window, verified against a capture rather
+    // than dialled in by eye.
+    //
+    // The vectors go in unconverted: these uniforms are GW2 world space (Z-up),
+    // which is the same space the map path below already feeds r.sunDir in.
+    if (g_preview_rig && !g_env_rig_active && !g_scene_mode) {
+        PreviewRigUniforms u = eval_preview_rig(lit);
+        // Headlight: same override as the map path -- swing the key light to a
+        // camera-relative direction so an orbited model keeps its front lit. The SH
+        // ambient (fills/rims/bounce) stays as the rig built it.
+        if (g_light_follow) {
+            Vec3 t = headlight_toward();
+            u.shSun[0] = t.x; u.shSun[1] = t.y; u.shSun[2] = t.z;
+            u.shSunData[0] = t.x; u.shSunData[1] = t.y; u.shSunData[2] = t.z;
+        }
+        put4("shRed", u.shRed); put4("shGreen", u.shGreen); put4("shBlue", u.shBlue);
+        put4("shSun", u.shSun); put4("shSunColor", u.shSunColor); put4("shSunData", u.shSunData);
+        put4("BacklightColor", u.backlightColor);
+        put4("BacklightDirection", u.backlightDir);
+        put("SunColor", {0, 0, 0, 0});
+        put("SunDirection", {-u.shSun[0], -u.shSun[1], -u.shSun[2], 0}); // travel dir
+        return;
+    }
+
+    // --- Map scene (or preview rig disabled): drive the rig from the env chunk. ---
+    // The backlight pair has no MapEnvRig field yet (the mapc `env` chunk does carry
+    // backlightColor/backlightIntensity -- see docs/research/gw2-map-lighting.md --
+    // we just don't parse them), so write an explicit zero rather than leave the
+    // cbuffer slot to chance. Zero = no backlight, which is the safe neutral.
+    put("BacklightColor", {0, 0, 0, 0});
+    put("BacklightDirection", {0, 0, 1, 0});
 
     float sd[3] = {r.sunDir[0], r.sunDir[1], r.sunDir[2]};
     // Single-model view with the headlight on: the game SH sun follows the camera

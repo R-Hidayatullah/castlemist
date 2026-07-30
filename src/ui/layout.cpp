@@ -133,6 +133,7 @@ void layout_children(int client_w, int client_h) {
     ShowWindow(g_app->hwnd_light_slider, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_light_follow, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_light_angle, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
+    ShowWindow(g_app->hwnd_light_gw2rig, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_submesh_combo, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_lod_combo, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_tex_reduced, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
@@ -278,6 +279,7 @@ void layout_children(int client_w, int client_h) {
                 if (castlemist::render::has_cloth()) tb.push_back({g_app->hwnd_cloth_toggle, 60, kButtonH, 0});
                 tb.push_back({g_app->hwnd_light_label, 34, kButtonH, 4});
                 tb.push_back({g_app->hwnd_light_slider, 130, kButtonH, 0});
+                tb.push_back({g_app->hwnd_light_gw2rig, 62, kButtonH, 0});
                 tb.push_back({g_app->hwnd_light_follow, 78, kButtonH, 0});
                 tb.push_back({g_app->hwnd_light_angle, 110, kButtonH, 0});
                 tb.push_back({g_app->hwnd_gizmo_move, 52, kButtonH, 0});
