@@ -25,6 +25,41 @@
 
 namespace castlemist::ui {
 
+namespace {
+
+/// @brief `castlemist.exe [<Gw2.dat>] [<baseId>]`
+///
+/// Opening a 87 GB archive through a file dialog every time gets old quickly,
+/// and a baseId on the command line means a link to an entry can be shared as
+/// a command. Both arguments are optional and a bad one is ignored rather than
+/// fatal: the window is already up, so the user can still open a dat by hand.
+void apply_command_line(HWND hwnd) {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv == nullptr) return;
+
+    if (argc > 1 && GetFileAttributesW(argv[1]) != INVALID_FILE_ATTRIBUTES) {
+        if (load_dat_path(hwnd, argv[1]) && argc > 2) {
+            // baseId is the MFT index plus one -- the ids in
+            // docs/research/curated-test-ids.txt are baseIds.
+            wchar_t* end = nullptr;
+            unsigned long base = wcstoul(argv[2], &end, 10);
+            if (end != argv[2] && base > 0) {
+                uint32_t row = static_cast<uint32_t>(base - 1);
+                if (g_app != nullptr && g_app->hwnd_list != nullptr) {
+                    ListView_SetItemState(g_app->hwnd_list, row, LVIS_SELECTED | LVIS_FOCUSED,
+                                          LVIS_SELECTED | LVIS_FOCUSED);
+                    ListView_EnsureVisible(g_app->hwnd_list, row, FALSE);
+                }
+                on_entry_selected(row);
+            }
+        }
+    }
+    LocalFree(argv);
+}
+
+} // namespace
+
 int run(HINSTANCE hInstance, int cmd_show) {
     g_hinstance = hInstance;
 
@@ -102,6 +137,8 @@ int run(HINSTANCE hInstance, int cmd_show) {
     ShowWindow(hwnd, cmd_show);
     UpdateWindow(hwnd);
     refresh_theme(hwnd); // children exist by now; push the palette into them
+
+    apply_command_line(hwnd);
 
     // Debug: GW2_SCENE=<mftIndex> builds a synthetic coordinated scene (a grid of
     // that model at varied positions/rotations) to verify the map scene renderer.
