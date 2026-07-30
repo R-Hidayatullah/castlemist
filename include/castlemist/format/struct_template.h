@@ -16,6 +16,11 @@ namespace castlemist::tpl {
 /// Returns the current template (nullptr if none loaded yet).
 std::shared_ptr<const nlohmann::json> get();
 
+/// Where the active template was loaded from, or empty if none is loaded. The
+/// index builder needs the path rather than the parsed JSON, because it runs the
+/// parse itself on a worker thread.
+std::string source_path();
+
 /// Parses `path` and installs it as the active template. Returns false (leaving
 /// the previous template untouched) on read/parse failure; `error` gets why.
 bool load_from_file(const std::string& path, std::string& error);

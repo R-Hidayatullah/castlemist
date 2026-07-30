@@ -82,7 +82,9 @@ castlemist_add_layer(format DEPS castlemist::core castlemist::native
                                  ext::jpegturbo ext::webp ext::stb
                                  windowscodecs ole32 oleaut32 uuid)
 
-castlemist_add_layer(db     DEPS castlemist::core ext::sqlite)
+# db also builds the index (index_builder), which reads the archive directly and
+# resolves chunk struct variants from the JSON template.
+castlemist_add_layer(db     DEPS castlemist::core castlemist::native ext::sqlite ext::json)
 
 castlemist_add_layer(media  DEPS castlemist::core castlemist::native
                                  ext::drlibs ext::stb ext::bink2

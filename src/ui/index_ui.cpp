@@ -111,6 +111,18 @@ void finish_open_index(HWND hwnd, bool silent) {
 }
 
 // File -> Open Index DB: pick a gw2index/gw2local SQLite, then finish_open_index.
+// Open an index whose path is already known -- used after building one, where
+// making the user re-pick the file they just named would be silly.
+bool load_index_path(HWND hwnd, const wchar_t* path) {
+    std::string err;
+    if (!castlemist::db::open(path, err)) {
+        MessageBoxA(hwnd, err.c_str(), "Failed to open index DB", MB_ICONERROR);
+        return false;
+    }
+    finish_open_index(hwnd, /*silent=*/false);
+    return true;
+}
+
 void do_open_index(HWND hwnd) {
     wchar_t path[MAX_PATH] = L"";
     OPENFILENAMEW ofn{};

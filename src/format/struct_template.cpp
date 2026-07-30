@@ -12,6 +12,7 @@ namespace {
 
 std::mutex g_mutex;
 std::shared_ptr<const nlohmann::json> g_template;
+std::string g_source_path;
 
 // Directory the running .exe lives in (with trailing backslash), for locating a
 // bundled templates/ folder regardless of the process working directory.
@@ -35,6 +36,11 @@ std::shared_ptr<const nlohmann::json> get() {
     return g_template;
 }
 
+std::string source_path() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_source_path;
+}
+
 bool load_from_file(const std::string& path, std::string& error) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -50,6 +56,7 @@ bool load_from_file(const std::string& path, std::string& error) {
         }
         std::lock_guard<std::mutex> lock(g_mutex);
         g_template = parsed;
+        g_source_path = path;
         return true;
     } catch (const std::exception& e) {
         error = std::string("Parse error: ") + e.what();

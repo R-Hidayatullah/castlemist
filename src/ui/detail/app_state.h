@@ -60,6 +60,7 @@ constexpr UINT_PTR ID_FILE_OPEN_INDEX = 1007;
 constexpr UINT_PTR ID_TOOLS_DECODE_LINK = 1008;
 constexpr UINT_PTR ID_FILE_OPEN_LOOSE = 1009;  // 1008 is taken; WM_COMMAND ids must be unique
 // View > Theme.
+constexpr UINT_PTR ID_FILE_BUILD_INDEX = 1014;  // build an index DB from a .dat
 constexpr UINT_PTR ID_VIEW_THEME_DARK   = 1010;
 constexpr UINT_PTR ID_VIEW_THEME_LIGHT  = 1011;
 constexpr UINT_PTR ID_VIEW_THEME_CUSTOM = 1012;
@@ -206,6 +207,12 @@ constexpr int ID_PROGRESS = 2041;
 
 constexpr UINT WM_APP_EXTRACT_DONE = WM_APP + 1;
 constexpr UINT WM_APP_CMAP_DONE = WM_APP + 2;
+/// Posted from the index-build worker; wparam = entries done, lparam = total.
+/// Progress has to cross threads by message: the builder runs off the UI thread
+/// and must never touch a window handle itself.
+constexpr UINT WM_APP_INDEX_PROGRESS = WM_APP + 3;
+/// Posted when the build finishes; wparam = 1 on success, 0 on failure/cancel.
+constexpr UINT WM_APP_INDEX_DONE = WM_APP + 4;
 
 enum class MiddleTab { Compressed = 0, Decompressed = 1, Preview = 2 };
 
@@ -490,6 +497,9 @@ void do_export(HWND hwnd, bool export_compressed);
 std::string combo_sel(HWND combo);
 void apply_filters();
 void do_open_loose_file(HWND hwnd);
+void do_build_index(HWND hwnd);
+bool load_index_path(HWND hwnd, const wchar_t* path);
+void on_index_build_done(HWND hwnd, bool ok);
 void do_search();
 void do_clear_search();
 

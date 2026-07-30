@@ -35,7 +35,7 @@ endfunction()
 # -----------------------------------------------------------------------------
 castlemist_add_tool(gw2index
     SOURCES gw2index/gw2index.cpp
-    DEPS    castlemist::native ext::sqlite ext::json)
+    DEPS    castlemist::db)
 
 # -----------------------------------------------------------------------------
 # gw2dat_cli -- extract, decompress, decode and re-compress single entries
