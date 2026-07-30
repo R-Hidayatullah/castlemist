@@ -44,7 +44,7 @@ constexpr wchar_t kPreviewClassName[] = L"Gw2PreviewSurface";
 constexpr wchar_t kModelClassName[] = L"Gw2ModelSurface";
 
 constexpr int kSplitterThickness = 5;
-constexpr int kSearchBarHeight = 92;
+constexpr int kSearchBarHeight = 118;  // id row + Type/Container row + Content row
 constexpr int kMinPaneSize = 80;
 constexpr int kTabHeight = 26;
 constexpr int kToolbarHeight = 28;
@@ -88,6 +88,59 @@ constexpr UINT_PTR ID_SEARCH_BUTTON = 2022;
 constexpr UINT_PTR ID_CLEAR_BUTTON = 2023;
 constexpr int ID_FILTER_TYPE = 2024;
 constexpr int ID_FILTER_CONTAINER = 2025;
+constexpr int ID_FILTER_CONTENT = 2026;
+
+/// @brief One entry in the index-mode "Content" filter combo.
+///
+/// Maps a human label to a ::castlemist::db::ContentFilter. Kept here so the
+/// combo that displays them and the query that applies them cannot drift: the
+/// combo is populated by walking this table, and the selected index reads back
+/// out of it.
+struct ContentFilterChoice {
+    const wchar_t* label;
+    const char* magics;         ///< comma-separated entries.magic values, "" = any
+    const char* require_chunk;  ///< chunk fourcc the entry must carry
+    const char* exclude_chunk;  ///< chunk fourcc the entry must NOT carry
+};
+
+/// Index 0 must stay the no-op so "(any content)" is the default selection.
+///
+/// The MODL pair is the reason this exists: 198330 entries declare the MODL
+/// container but only 183166 carry a GEOM chunk, so "container = MODL" alone
+/// mixes 15164 animation-only files in with the actual meshes. Note "DDS "
+/// carries a trailing pad byte in the index -- that is the stored magic, not a
+/// typo.
+/// The ArenaNet texture family. `gw2_atex.hpp` accepts ATEX/ATTX/ATEC/ATEP/ATEU/
+/// ATET; the archive additionally carries CTEX, and the C-prefixed variants pair
+/// with the A-prefixed ones. Listed in full rather than trimmed to what one
+/// archive happens to hold, so the filter still works on a different .dat.
+#define CM_TEXTURE_MAGICS "ATEX,ATTX,ATEC,ATEP,ATEU,ATET,CTEX,CTTX,CTEC,CTEP,CTEU,CTET"
+
+inline constexpr ContentFilterChoice kContentFilters[] = {
+    {L"(any content)",                  "",                  "",     ""},
+    // Counts below are from the shipped archive, as a sanity check on the predicate.
+    {L"3D model - has GEOM mesh",       "",                  "GEOM", ""},        // 183166
+    // NOT just "no GEOM" -- that matches every texture and sound too (624989).
+    // Anim-only models are the ones that carry ANIM but no mesh.
+    {L"Anim only - ANIM, no mesh",      "",                  "ANIM", "GEOM"},    // 15164
+    {L"Rigged - has SKEL",              "",                  "SKEL", ""},        // 183166
+    {L"Has collision - COLL",           "",                  "COLL", ""},        // 111626
+    {L"Has properties - PRPS",          "",                  "PRPS", ""},
+    {L"Texture - any ArenaNet",         CM_TEXTURE_MAGICS,   "",     ""},        // 425437
+    {L"Texture - ATEX",                 "ATEX",              "",     ""},        // 334887
+    {L"Texture - ATEU",                 "ATEU",              "",     ""},        // 46439
+    {L"Texture - ATEP",                 "ATEP",              "",     ""},        // 44045
+    {L"Texture - ATEC",                 "ATEC",              "",     ""},
+    {L"Texture - ATTX",                 "ATTX",              "",     ""},
+    {L"Texture - ATET",                 "ATET",              "",     ""},
+    {L"Texture - CTEX",                 "CTEX",              "",     ""},        // 66
+    {L"Texture - DDS",                  "DDS ",              "",     ""},        // 17727 (padded magic)
+    {L"Cinematic scene - CSCN",         "",                  "CSCN", ""},        // 1446
+    {L"Material shaders - BGFX",        "",                  "BGFX", ""},        // 2817
+    {L"Map props - prp2",               "",                  "prp2", ""},        // 284
+    // The fourcc really is "trn." with a trailing dot, like "env." and "msn.".
+    {L"Map terrain - trn.",             "",                  "trn.", ""},        // 284
+};
 constexpr UINT_PTR ID_ZOOM_IN = 2030;
 constexpr UINT_PTR ID_ZOOM_OUT = 2031;
 constexpr UINT_PTR ID_ROTATE = 2032;
@@ -201,6 +254,7 @@ struct AppState {
     HWND hwnd_search_edit = nullptr;
     HWND hwnd_filter_type = nullptr;       // index-mode type filter combo
     HWND hwnd_filter_container = nullptr;  // index-mode container filter combo
+    HWND hwnd_filter_content = nullptr;    // index-mode "what does it contain" filter combo
     HWND hwnd_search_fileid_check = nullptr;
     HWND hwnd_search_button = nullptr;
     HWND hwnd_clear_button = nullptr;

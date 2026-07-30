@@ -129,12 +129,22 @@ void load_size_map(const std::function<void(uint32_t, long long)>& cb) {
 }
 
 std::vector<uint32_t> query_base_ids(const std::string& type, const std::string& container,
+                                     const ContentFilter& content,
                                      uint32_t id_value, bool id_by_fileid, bool id_active, int limit) {
     std::vector<uint32_t> out;
     if (!g_db) return out;
     std::string sql = "SELECT base_id FROM entries WHERE 1=1";
     if (!type.empty())      sql += " AND type=?";
     if (!container.empty()) sql += " AND container=?";
+    if (!content.magics.empty()) {
+        sql += " AND magic IN (";
+        for (size_t i = 0; i < content.magics.size(); ++i) sql += (i ? ",?" : "?");
+        sql += ")";
+    }
+    if (!content.require_chunk.empty())
+        sql += " AND base_id IN (SELECT base_id FROM chunks WHERE fourcc=?)";
+    if (!content.exclude_chunk.empty())
+        sql += " AND base_id NOT IN (SELECT base_id FROM chunks WHERE fourcc=?)";
     if (id_active) {
         if (id_by_fileid) sql += " AND base_id IN (SELECT base_id FROM file_ids WHERE file_id=?)";
         else              sql += " AND base_id=?";
@@ -146,12 +156,23 @@ std::vector<uint32_t> query_base_ids(const std::string& type, const std::string&
     int p = 1;
     if (!type.empty())      sqlite3_bind_text(st, p++, type.c_str(), -1, SQLITE_TRANSIENT);
     if (!container.empty()) sqlite3_bind_text(st, p++, container.c_str(), -1, SQLITE_TRANSIENT);
+    for (const std::string& m : content.magics)
+        sqlite3_bind_text(st, p++, m.c_str(), -1, SQLITE_TRANSIENT);
+    if (!content.require_chunk.empty())
+        sqlite3_bind_text(st, p++, content.require_chunk.c_str(), -1, SQLITE_TRANSIENT);
+    if (!content.exclude_chunk.empty())
+        sqlite3_bind_text(st, p++, content.exclude_chunk.c_str(), -1, SQLITE_TRANSIENT);
     if (id_active)          sqlite3_bind_int64(st, p++, id_value);
     sqlite3_bind_int(st, p++, limit);
     while (sqlite3_step(st) == SQLITE_ROW)
         out.push_back(static_cast<uint32_t>(sqlite3_column_int64(st, 0)));
     sqlite3_finalize(st);
     return out;
+}
+
+std::vector<uint32_t> query_base_ids(const std::string& type, const std::string& container,
+                                     uint32_t id_value, bool id_by_fileid, bool id_active, int limit) {
+    return query_base_ids(type, container, ContentFilter{}, id_value, id_by_fileid, id_active, limit);
 }
 
 EntryInfo lookup(uint32_t base_id) {

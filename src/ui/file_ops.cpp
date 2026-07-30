@@ -206,12 +206,31 @@ void apply_filters() {
     if (g_app->index_loaded) {
         std::string type = combo_sel(g_app->hwnd_filter_type);
         std::string cont = combo_sel(g_app->hwnd_filter_container);
-        if (!id_active && type.empty() && cont.empty()) {
+
+        // Content combo: index 0 is the no-op, so an out-of-range or unset
+        // selection degrades to "no content filter" rather than a wrong one.
+        castlemist::db::ContentFilter content;
+        LRESULT sel = SendMessageW(g_app->hwnd_filter_content, CB_GETCURSEL, 0, 0);
+        if (sel > 0 && sel < static_cast<LRESULT>(std::size(kContentFilters))) {
+            const ContentFilterChoice& c = kContentFilters[sel];
+            // magics is comma-separated so the table can stay a constexpr literal.
+            for (const char* b = c.magics; *b;) {
+                const char* e = b;
+                while (*e && *e != ',') ++e;
+                content.magics.emplace_back(b, e);
+                b = *e ? e + 1 : e;
+            }
+            content.require_chunk = c.require_chunk;
+            content.exclude_chunk = c.exclude_chunk;
+        }
+
+        if (!id_active && type.empty() && cont.empty() && content.empty()) {
             castlemist::mft::set_filter(g_app->hwnd_list, {});  // no filter -> show every asset
             SetWindowTextW(g_app->hwnd_status_label, L"Index: showing all entries");
             return;
         }
-        std::vector<uint32_t> ids = castlemist::db::query_base_ids(type, cont, id_val, by_file_id, id_active, 300000);
+        std::vector<uint32_t> ids =
+            castlemist::db::query_base_ids(type, cont, content, id_val, by_file_id, id_active, 300000);
         castlemist::mft::set_filter(g_app->hwnd_list, ids);
         wchar_t st[128];
         swprintf(st, 128, L"Index filter -> %zu entries", ids.size());
@@ -239,6 +258,7 @@ void do_clear_search() {
     SetWindowTextW(g_app->hwnd_search_edit, L"");
     if (g_app->hwnd_filter_type) SendMessageW(g_app->hwnd_filter_type, CB_SETCURSEL, 0, 0);
     if (g_app->hwnd_filter_container) SendMessageW(g_app->hwnd_filter_container, CB_SETCURSEL, 0, 0);
+    if (g_app->hwnd_filter_content) SendMessageW(g_app->hwnd_filter_content, CB_SETCURSEL, 0, 0);
     if (g_app->index_loaded) apply_filters();
     else castlemist::mft::set_filter(g_app->hwnd_list, {});
 }

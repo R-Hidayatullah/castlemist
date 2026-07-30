@@ -284,6 +284,11 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         g_app->hwnd_filter_container = CreateWindowExW(
             0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_FILTER_CONTAINER)), g_hinstance, nullptr);
+        // "What does it actually contain" -- the container fourcc alone is too
+        // coarse (see castlemist::db::ContentFilter). Own row: the labels are long.
+        g_app->hwnd_filter_content = CreateWindowExW(
+            0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_FILTER_CONTENT)), g_hinstance, nullptr);
 
         g_app->hwnd_list = castlemist::mft::create(hwnd, g_hinstance, ID_LISTVIEW);
         castlemist::mft::set_selection_callback(g_app->hwnd_list, on_entry_selected);
@@ -1026,6 +1031,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             return 0;
         case ID_FILTER_TYPE:
         case ID_FILTER_CONTAINER:
+        case ID_FILTER_CONTENT:
             if (HIWORD(wparam) == CBN_SELCHANGE) apply_filters();
             return 0;
         case ID_ANIM_COMBO:
