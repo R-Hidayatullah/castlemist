@@ -34,6 +34,9 @@ out/
 _deps/
 Testing/
 /bin/
+# Packaged release archives, staged here before being attached to a GitHub
+# release. Derived from build/, so never committed.
+/dist/
 *.o
 *.obj
 *.a
