@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(castlemist
-    VERSION     0.1.0
+    VERSION     0.2.0
     DESCRIPTION "Guild Wars 2 .dat explorer (Win32 + Direct3D 11)"
     LANGUAGES   C CXX
 )

@@ -1,3 +1,5 @@
+<img src="docs/assets/logo.png" width="120" align="right" alt="">
+
 # castlemist
 
 An explorer for the Guild Wars 2 `.dat` archive: browse the MFT, decode the
@@ -5,6 +7,41 @@ formats inside it, and preview textures, models, maps, audio and video without
 launching the game.
 
 Win32 + Direct3D 11, C++20, built with MinGW-w64.
+
+![castlemist browsing Gw2.dat](docs/assets/screenshot-dark.png)
+
+## Themes
+
+Dark by default, light, or a custom accent -- **View > Theme**. The custom mode
+picks its base palette from the accent's luminance, so a bright accent lands on
+a light base and a dark one on a dark base rather than leaving you to work out
+which is readable.
+
+| light | custom accent |
+| --- | --- |
+| ![](docs/assets/screenshot-light.png) | ![](docs/assets/screenshot-custom.png) |
+
+> Two controls -- the search box and the tab strip -- still render light in dark
+> mode. They are common controls that ignore the brush from `WM_CTLCOLOR*` and
+> are not covered by Windows' `DarkMode_*` themes; fixing them properly means
+> owner-drawing both.
+
+## Running it
+
+```bash
+castlemist.exe
+```
+
+Or open an archive, and optionally an entry, straight away:
+
+```bash
+castlemist.exe "C:/Program Files (x86)/Steam/steamapps/common/Guild Wars 2/Gw2.dat" 2871
+```
+
+The second argument is a **baseId** -- the ids in
+[`docs/research/curated-test-ids.txt`](docs/research/curated-test-ids.txt) are
+baseIds, and mixing them up with fileIds is the usual reason a known-good id
+resolves to something unexpected.
 
 ## Layout
 
