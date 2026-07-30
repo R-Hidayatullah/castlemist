@@ -45,13 +45,15 @@ void apply_command_line(HWND hwnd) {
             wchar_t* end = nullptr;
             unsigned long base = wcstoul(argv[2], &end, 10);
             if (end != argv[2] && base > 0) {
-                uint32_t row = static_cast<uint32_t>(base - 1);
-                if (g_app != nullptr && g_app->hwnd_list != nullptr) {
-                    ListView_SetItemState(g_app->hwnd_list, row, LVIS_SELECTED | LVIS_FOCUSED,
-                                          LVIS_SELECTED | LVIS_FOCUSED);
-                    ListView_EnsureVisible(g_app->hwnd_list, row, FALSE);
-                }
-                on_entry_selected(row);
+                // baseId is 1-based over the MFT, so the entry is base - 1.
+                //
+                // The list is NOT told to select that row. Its rows are not MFT
+                // indices -- entries without a baseId are skipped, so row 2870
+                // is some other entry entirely -- and setting the selection
+                // fires the list's own callback, which then races this one and
+                // wins. Loading the entry directly is unambiguous; the list
+                // simply stays where it is.
+                on_entry_selected(static_cast<uint32_t>(base - 1));
             }
         }
     }
