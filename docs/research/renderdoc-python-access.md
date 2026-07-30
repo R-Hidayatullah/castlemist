@@ -25,6 +25,15 @@ That executes the script in RenderDoc's **embedded** interpreter, where the
 JSON file (GUI app stdout is unreliable) and end with `os._exit(0)` to stop the
 main UI from opening. Scripts must be **Python 3.6** compatible.
 
+**Pass NO extra arguments** — `qrenderdoc --python foo.py <capture> <out>` does
+*not* forward them as `sys.argv`; qrenderdoc consumes trailing positionals as
+"captures to open", so it loads the .rdc into a GUI window and your script never
+runs (symptom: the main window opens titled `<capture>.rdc - RenderDoc`, no output
+file, no exception anywhere). Bake every path into the generated script and invoke
+exactly `[qrenderdoc, "--python", script]` — which is what `_replay()` in
+`mcp/renderdoc/server.py` does. Write a progress/sentinel file as the first
+statement so "script never started" is distinguishable from "script is slow".
+
 **Why the obvious route fails:** `import renderdoc` from system Python does not
 work here, and cannot be made to work without building RenderDoc from source:
 - The Windows MSI install of RenderDoc 1.45 ships **no** `renderdoc.pyd` and no
