@@ -399,6 +399,35 @@ inline bool blendReadsSrcAlpha(uint64_t st) {
 // shader. So honouring the default alone already beats guessing.
 inline constexpr uint64_t kAmatDefaultEffectToken = 183330ull;
 
+/// @brief Decode a base-23 packed GW2 token32 to its lowercase name.
+///
+/// Engine: `Token::Decode` (sub_140E3B360, Token.cpp:30). The alphabet has 23
+/// letters -- no j/q/z -- and the subtraction wraps unsigned exactly as there.
+/// Verified against known values: 805394902 -> "high", 881522146 -> "medium",
+/// 805317257 -> "low".
+inline std::string decodeToken23(uint32_t token) {
+    static const char* kAlpha = "abcdefghiklmnopvrstuwxy";
+    uint32_t v = token - 0x30000000u;
+    std::string out;
+    while (v) { out.push_back(kAlpha[v % 23]); v /= 23; }
+    return out;
+}
+
+/// @brief Rank an AMAT technique's quality token; higher is better.
+///
+/// `techniques[]` are QUALITY LEVELS, not passes (selector `sub_140BFBFD0`
+/// against GR_SHADER_QUALITIES; the game picks one via `m_techniqueIndex` from
+/// the graphics settings). A viewer has no such slider, so it takes the best on
+/// offer. Unknown tokens rank lowest but stay usable.
+inline int amatQualityRank(uint32_t qualityToken) {
+    const std::string q = decodeToken23(qualityToken);
+    if (q == "ultra")  return 4;
+    if (q == "high")   return 3;
+    if (q == "medium") return 2;
+    if (q == "low")    return 1;
+    return 0;
+}
+
 /// @brief One hop of the engine's hardcoded effect-token fallback chain.
 /// @return The token to try next, or ::kAmatDefaultEffectToken to stop.
 inline uint64_t amatRemapEffectToken(uint64_t t) {
@@ -1032,11 +1061,17 @@ public:
             bool lit;    // pixel shader declares the SH sun/ambient rig
             bool blend;  // renderState carries real bgfx blend bits
             uint64_t tok;    // AmatEffectV1::token -- the engine's selection key
+            int qrank;       // quality of the technique this came from (higher = better)
         };
         std::vector<Cand> cands;
         std::string tT, pT, eT, vT; int tS = 0, pS = 0, eS = 0, vS = 0; uint32_t tN = 0, pN = 0, eN = 0, vN = 0;
         size_t tb = iter(root, bgfx, "techniques", tT, tS, tN);
         for (uint32_t ti = 0; tb && ti < tN; ++ti) {
+            // techniques[] are quality levels; remember which one each candidate
+            // came from so the tier filter below can keep only the best.
+            int qrank = 0;
+            { size_t qo; json qf;
+              if (fieldOffset(tT, "quality", qo, qf)) qrank = amatQualityRank(rd32(tb + (size_t)ti * tS + qo)); }
             size_t pb = iter(tT, tb + (size_t)ti * tS, "passes", pT, pS, pN);
             for (uint32_t pi = 0; pb && pi < pN; ++pi) {
                 size_t eb = iter(pT, pb + (size_t)pi * pS, "effects", eT, eS, eN);
@@ -1116,7 +1151,7 @@ public:
                         if (psh.alphaIsConstant && blendReadsSrcAlpha(rstate)) rstate &= ~kBgfxBlendMask;
                         if (spf & kAmatPassNoColor) { /* depth-only pass */ }
                         else if (psh.samplesSlot0 && (psh.hasShLighting || !psh.writesNormalEncode))
-                            cands.push_back({ps, vs, rstate, spf, ns, psh.hasShLighting, isBlendState(rstate), etok});
+                            cands.push_back({ps, vs, rstate, spf, ns, psh.hasShLighting, isBlendState(rstate), etok, qrank});
                         if (getenv("AMATDBG")) std::fprintf(stderr,
                             "[amat] effT=%s ef=%d@%zu=0x%llx  varT=%s vf=%d@%zu=0x%llx blend=%d "
                             "cand=%d normalPrepass=%d sh=%d slot0=%d nsamp=%d passFlags=0x%x\n",
@@ -1156,9 +1191,20 @@ public:
         // logic below only the effects the engine would actually have considered.
         // A materialToken of 0 (caller has none) still tries the default, which is
         // strictly better than going straight to content heuristics.
+        // The engine resolves the technique FIRST (by quality) and only then looks
+        // the effect up by token inside that technique's pass. Order matters: an
+        // AMAT repeats the same effect tokens at every quality level with different
+        // shaders -- AMAT 19896 carries the default token 183330 in all three
+        // (ps 3 / 46 / 94) -- so matching across a pooled candidate list would let a
+        // `low` shader win the tie on sampler count.
+        int bestQ = -1;
+        for (const auto& c : cands) if (c.qrank > bestQ) bestQ = c.qrank;
+        std::vector<Cand> tier;
+        for (const auto& c : cands) if (c.qrank == bestQ) tier.push_back(c);
+
         std::vector<Cand> picked;
         for (uint64_t want = materialToken, hop = 0; hop < 3 && picked.empty(); ++hop) {
-            if (want) for (const auto& c : cands) if (c.tok == want) picked.push_back(c);
+            if (want) for (const auto& c : tier) if (c.tok == want) picked.push_back(c);
             if (!picked.empty()) break;
             uint64_t next = amatRemapEffectToken(want);
             if (next == want) break;
@@ -1166,8 +1212,8 @@ public:
         }
         out.tokenMatched = !picked.empty();
         // No token match at all -> the AMAT genuinely has nothing the engine's rule
-        // would select, so fall back to the content heuristic on the full set.
-        const std::vector<Cand>& sel = picked.empty() ? cands : picked;
+        // would select, so fall back to the content heuristic within the same tier.
+        const std::vector<Cand>& sel = picked.empty() ? tier : picked;
 
         bool anyLit = false;
         for (const auto& c : sel) if (c.lit) { anyLit = true; break; }
