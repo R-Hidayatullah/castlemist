@@ -90,8 +90,15 @@ void finish_open_index(HWND hwnd, bool silent) {
     };
     fill(g_app->hwnd_filter_type, castlemist::db::types());
     fill(g_app->hwnd_filter_container, castlemist::db::containers());
+    // Content choices are a fixed table, not distinct values off the DB -- they
+    // are predicates over the chunk list, which has no single column to enumerate.
+    SendMessageW(g_app->hwnd_filter_content, CB_RESETCONTENT, 0, 0);
+    for (const ContentFilterChoice& c : kContentFilters)
+        SendMessageW(g_app->hwnd_filter_content, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(c.label));
+    SendMessageW(g_app->hwnd_filter_content, CB_SETCURSEL, 0, 0);
     ShowWindow(g_app->hwnd_filter_type, SW_SHOW);
     ShowWindow(g_app->hwnd_filter_container, SW_SHOW);
+    ShowWindow(g_app->hwnd_filter_content, SW_SHOW);
 
     g_app->index_loaded = true;
     InvalidateRect(g_app->hwnd_list, nullptr, TRUE);

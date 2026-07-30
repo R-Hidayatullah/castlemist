@@ -143,6 +143,26 @@ ExtractedEntry extract_entry(Gw2Dat& data_gw2, uint32_t mft_index);
 /// @param entry     A copy of the MFT record to extract.
 ExtractedEntry extract_entry(const std::string& file_path, const MftData& entry);
 
+/// @brief Identify and preview a file that is not inside a .dat.
+///
+/// Runs the same format detection as an archive entry, so anything the browser
+/// can preview from Gw2.dat -- ATEX family, DDS, PNG/JPEG, Bink video, audio,
+/// packfiles, text -- previews the same way off disk. That covers assets exported
+/// from the archive as well as ones that were never in it.
+///
+/// Accepts both shapes this app can write: a finished file ("Export
+/// Decompressed", or any ordinary .dds/.bik), and a raw MFT dump ("Export
+/// Compressed") that still carries CRC32C framing and possibly Method0
+/// compression. The two are indistinguishable by extension, so the reading is
+/// chosen by trying the harmless one first and unwrapping only if that fails.
+///
+/// Never throws for unrecognised input -- it comes back as PreviewKind::None with
+/// the bytes intact for the hex view.
+///
+/// @param bytes       The whole file.
+/// @param source_path Where it came from; used to resolve model textures and shown in the UI.
+ExtractedEntry extract_loose_file(std::vector<uint8_t> bytes, const std::string& source_path);
+
 /// @name Texture resolution preference
 /// @brief Which member of a full/reduced texture pair model materials should load.
 ///

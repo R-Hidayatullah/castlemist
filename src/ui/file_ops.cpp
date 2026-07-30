@@ -69,6 +69,70 @@ void do_open_file(HWND hwnd) {
     load_dat_path(hwnd, path);
 }
 
+// Open an asset that is not inside a .dat -- something exported from the archive,
+// or a file that was never in one. Runs the same detection as an archive entry, so
+// ATEX-family textures, DDS, Bink video, audio, packfiles and text all preview
+// exactly as they do when browsing Gw2.dat.
+void do_open_loose_file(HWND hwnd) {
+    wchar_t path[MAX_PATH] = L"";
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = hwnd;
+    // "All Files" is not last by accident: an export carries whatever extension
+    // the user typed, and raw MFT dumps usually have none at all.
+    ofn.lpstrFilter =
+        L"Textures (ATEX family, DDS)\0*.atex;*.attx;*.atec;*.atep;*.ateu;*.atet;*.ctex;*.dds\0"
+        L"Images\0*.png;*.jpg;*.jpeg;*.bmp;*.webp\0"
+        L"Video (Bink)\0*.bik;*.bk2\0"
+        L"All Files\0*.*\0";
+    ofn.lpstrFile = path;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.nFilterIndex = 4;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&ofn)) return;
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        MessageBoxW(hwnd, L"Could not open that file.", L"castlemist", MB_ICONWARNING | MB_OK);
+        return;
+    }
+    std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (bytes.empty()) {
+        MessageBoxW(hwnd, L"That file is empty.", L"castlemist", MB_ICONWARNING | MB_OK);
+        return;
+    }
+
+    std::string source;
+    {
+        int len = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
+        if (len > 0) { source.resize(static_cast<size_t>(len) - 1);
+                       WideCharToMultiByte(CP_UTF8, 0, path, -1, source.data(), len, nullptr, nullptr); }
+    }
+
+    ExtractedEntry entry;
+    try {
+        entry = extract_loose_file(std::move(bytes), source);
+    } catch (const std::exception&) {
+        MessageBoxW(hwnd, L"Could not read that file.", L"castlemist", MB_ICONWARNING | MB_OK);
+        return;
+    }
+
+    // There is no MFT index for a loose file. UINT32_MAX makes the two id lookups
+    // inside apply_extracted_entry resolve to baseId 0, which never matches.
+    PreviewKind kind = entry.kind;
+    size_t shown = entry.decompressed.size();
+    apply_extracted_entry(UINT32_MAX, std::move(entry));
+
+    const wchar_t* name = wcsrchr(path, L'\\');
+    name = name ? name + 1 : path;
+    wchar_t st[MAX_PATH + 96];
+    if (kind == PreviewKind::None)
+        swprintf(st, MAX_PATH + 96, L"%ls - unrecognised format, showing %zu bytes as hex", name, shown);
+    else
+        swprintf(st, MAX_PATH + 96, L"%ls - %zu bytes", name, shown);
+    SetWindowTextW(g_app->hwnd_status_label, st);
+}
+
 void do_load_template(HWND hwnd) {
     wchar_t path[MAX_PATH] = L"";
     OPENFILENAMEW ofn{};
@@ -206,12 +270,31 @@ void apply_filters() {
     if (g_app->index_loaded) {
         std::string type = combo_sel(g_app->hwnd_filter_type);
         std::string cont = combo_sel(g_app->hwnd_filter_container);
-        if (!id_active && type.empty() && cont.empty()) {
+
+        // Content combo: index 0 is the no-op, so an out-of-range or unset
+        // selection degrades to "no content filter" rather than a wrong one.
+        castlemist::db::ContentFilter content;
+        LRESULT sel = SendMessageW(g_app->hwnd_filter_content, CB_GETCURSEL, 0, 0);
+        if (sel > 0 && sel < static_cast<LRESULT>(std::size(kContentFilters))) {
+            const ContentFilterChoice& c = kContentFilters[sel];
+            // magics is comma-separated so the table can stay a constexpr literal.
+            for (const char* b = c.magics; *b;) {
+                const char* e = b;
+                while (*e && *e != ',') ++e;
+                content.magics.emplace_back(b, e);
+                b = *e ? e + 1 : e;
+            }
+            content.require_chunk = c.require_chunk;
+            content.exclude_chunk = c.exclude_chunk;
+        }
+
+        if (!id_active && type.empty() && cont.empty() && content.empty()) {
             castlemist::mft::set_filter(g_app->hwnd_list, {});  // no filter -> show every asset
             SetWindowTextW(g_app->hwnd_status_label, L"Index: showing all entries");
             return;
         }
-        std::vector<uint32_t> ids = castlemist::db::query_base_ids(type, cont, id_val, by_file_id, id_active, 300000);
+        std::vector<uint32_t> ids =
+            castlemist::db::query_base_ids(type, cont, content, id_val, by_file_id, id_active, 300000);
         castlemist::mft::set_filter(g_app->hwnd_list, ids);
         wchar_t st[128];
         swprintf(st, 128, L"Index filter -> %zu entries", ids.size());
@@ -239,6 +322,7 @@ void do_clear_search() {
     SetWindowTextW(g_app->hwnd_search_edit, L"");
     if (g_app->hwnd_filter_type) SendMessageW(g_app->hwnd_filter_type, CB_SETCURSEL, 0, 0);
     if (g_app->hwnd_filter_container) SendMessageW(g_app->hwnd_filter_container, CB_SETCURSEL, 0, 0);
+    if (g_app->hwnd_filter_content) SendMessageW(g_app->hwnd_filter_content, CB_SETCURSEL, 0, 0);
     if (g_app->index_loaded) apply_filters();
     else castlemist::mft::set_filter(g_app->hwnd_list, {});
 }

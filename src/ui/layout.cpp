@@ -30,11 +30,13 @@ void layout_children(int client_w, int client_h) {
     MoveWindow(g_app->hwnd_search_fileid_check, 6, 32, std::max(0, list_w - 12 - 130), 22, TRUE);
     MoveWindow(g_app->hwnd_search_button, std::max(6, list_w - 122), 32, 55, 22, TRUE);
     MoveWindow(g_app->hwnd_clear_button, std::max(6, list_w - 63), 32, 55, 22, TRUE);
-    // Filter combos row (index mode): Type | Container, split across the width.
+    // Filter combos (index mode): Type | Container share a row; Content gets its
+    // own below, because its entries are sentences rather than fourccs.
     {
         int cw = std::max(40, (list_w - 12 - 6) / 2);
         MoveWindow(g_app->hwnd_filter_type, 6, 60, cw, 200, TRUE);
         MoveWindow(g_app->hwnd_filter_container, 6 + cw + 6, 60, cw, 200, TRUE);
+        MoveWindow(g_app->hwnd_filter_content, 6, 86, std::max(40, list_w - 12), 260, TRUE);
     }
     MoveWindow(g_app->hwnd_list, 0, kSearchBarHeight, list_w, std::max(0, usable_h - kSearchBarHeight), TRUE);
 

@@ -291,7 +291,10 @@ bool peek_is_bink_fileid(Gw2Dat& dat, uint32_t file_id);
 /// @param raw_bytes        On-disk bytes including the CRC32C.
 /// @param compression_flag The MFT entry's flag (0 = stored).
 /// @param dat_path         Used to resolve model textures and external references.
+/// @param already_plain    True when `raw_bytes` is a finished file rather than an
+///                         MFT entry, so the CRC32C strip and Method0 inflate are
+///                         skipped. Format detection is identical either way.
 ExtractedEntry decompress_raw_entry(std::vector<uint8_t> raw_bytes, uint16_t compression_flag,
-                                    const std::string& dat_path);
+                                    const std::string& dat_path, bool already_plain = false);
 
 } // namespace castlemist::extract
