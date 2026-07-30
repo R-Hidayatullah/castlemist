@@ -27,6 +27,31 @@ namespace castlemist::ui {
 
 namespace {
 
+/// @brief Where the GW2_* debug hooks write their dumps.
+///
+/// These paths used to be a hard-coded absolute directory on one developer's
+/// machine, which meant every dump silently went nowhere for everybody else.
+/// GW2_DUMP_DIR overrides; otherwise it is the user's temp directory, which
+/// always exists and is always writable.
+///
+/// Returns a path with a trailing separator.
+const std::string& dump_dir() {
+    static const std::string dir = [] {
+        if (const char* env = std::getenv("GW2_DUMP_DIR"); env != nullptr && *env != '\0') {
+            std::string d = env;
+            if (d.back() != '/' && d.back() != '\\') d.push_back('\\');
+            return d;
+        }
+        char buf[MAX_PATH] = {0};
+        DWORD n = GetTempPathA(MAX_PATH, buf);
+        return n > 0 ? std::string(buf, n) : std::string(".\\");
+    }();
+    return dir;
+}
+
+/// @brief dump_dir() + @p name, for the one-off dump filenames below.
+std::string dump_path(const char* name) { return dump_dir() + name; }
+
 /// @brief `castlemist.exe [<Gw2.dat>] [<baseId>]`
 ///
 /// Opening a 87 GB archive through a file dialog every time gets old quickly,
@@ -167,15 +192,15 @@ int run(HINSTANCE hInstance, int cmd_show) {
                 g_app->current_entry = std::move(e);
                 castlemist::render::on_resize(1000, 800); // size the offscreen swapchain for the headless shot
                 castlemist::render::set_scene(models, insts);
-                castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_scene.bmp");
+                castlemist::render::save_screenshot(dump_path("shot_scene.bmp").c_str());
                 // GW2_SCENEGAME=1: also exercise the map GAME-shader path + inset
                 // preview (the single-model extract carried gameMaterials).
                 if (std::getenv("GW2_SCENEGAME")) {
                     castlemist::render::build_scene_game_materials(models);
                     castlemist::render::set_mode(castlemist::render::RenderMode::GameShader);
-                    castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_scene_game.bmp");
+                    castlemist::render::save_screenshot(dump_path("shot_scene_game.bmp").c_str());
                     castlemist::render::set_scene_focus(0); // show the inset preview of model 0
-                    castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_scene_inset.bmp");
+                    castlemist::render::save_screenshot(dump_path("shot_scene_inset.bmp").c_str());
                 }
             }
         } catch (const std::exception& ex) { MessageBoxA(hwnd, ex.what(), "scene failed", MB_OK); }
@@ -184,7 +209,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
     // Debug: GW2_AUDIOTEST=<mftIndex> exercises the audio detect+decode+play path
     // and logs the result (playback is best-effort in a headless environment).
     if (const char* at = std::getenv("GW2_AUDIOTEST")) {
-        FILE* lf = std::fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/audiotest.txt", "w");
+        FILE* lf = std::fopen(dump_path("audiotest.txt").c_str(), "w");
         try {
             load_dat_file(g_app->data_gw2,
                           "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat");
@@ -216,7 +241,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
     // detected kind + the head of its text preview -- validates the eula / ABIX /
     // txt* / CSCN summary parsers against the live dat.
     if (const char* pt = std::getenv("GW2_PARSETEST")) {
-        FILE* lf = std::fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/parsetest.txt", "w");
+        FILE* lf = std::fopen(dump_path("parsetest.txt").c_str(), "w");
         try {
             load_dat_file(g_app->data_gw2,
                           "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat");
@@ -260,7 +285,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
     // detected as a Bink cinematic, opens it through dumps/binaries/bink2w64.dll,
     // decodes a run of frames, seeks, and dumps a BMP of the seeked frame.
     if (const char* vt = std::getenv("GW2_VIDEOTEST")) {
-        FILE* lf = std::fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/videotest.txt", "w");
+        FILE* lf = std::fopen(dump_path("videotest.txt").c_str(), "w");
         auto log = [&](const char* fmt, auto... a) { if (lf) { std::fprintf(lf, fmt, a...); std::fflush(lf); } };
         auto dump_bmp = [](const char* path, const uint8_t* bgra, int w, int h) {
             BITMAPFILEHEADER fh{}; BITMAPINFOHEADER ih{};
@@ -402,7 +427,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
                         castlemist::vid::current_frame(), sum);
                     char path[256];
                     std::snprintf(path, sizeof(path),
-                                  "C:/Users/RIDWAN~1/AppData/Local/Temp/claude/videotest_%d_%u.bmp", which, base);
+                                  dump_path("videotest_%d_%u.bmp").c_str(), which, base);
                     if (px) dump_bmp(path, px, w, h);
                     log("  wrote %s\n\n", path);
                     castlemist::vid::close();
@@ -420,7 +445,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
     // Debug: GW2_PIMGTEST=<mftIndex> composites a PIMG atlas and writes the RGBA
     // preview to a BMP for visual verification.
     if (const char* pt = std::getenv("GW2_PIMGTEST")) {
-        FILE* lf = std::fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/pimgtest.txt", "w");
+        FILE* lf = std::fopen(dump_path("pimgtest.txt").c_str(), "w");
         try {
             load_dat_file(g_app->data_gw2, "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Guild Wars 2\\Gw2.dat");
             uint32_t idx = static_cast<uint32_t>(atoi(pt));
@@ -432,7 +457,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
                 int len = WideCharToMultiByte(CP_UTF8, 0, e.text_preview.c_str(), -1, nullptr, 0, nullptr, nullptr);
                 std::string u8(len > 0 ? len : 0, '\0');
                 if (len > 0) WideCharToMultiByte(CP_UTF8, 0, e.text_preview.c_str(), -1, u8.data(), len, nullptr, nullptr);
-                FILE* tf = std::fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/cntc_text.txt", "w");
+                FILE* tf = std::fopen(dump_path("cntc_text.txt").c_str(), "w");
                 if (tf) { std::fwrite(u8.data(), 1, u8.size(), tf); std::fclose(tf); }
             }
             // Content browser: verify a few referenced assets load into real sub-entries.
@@ -498,7 +523,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
                     uint8_t* d = bmp.data() + 54 + (size_t)y * stride;
                     for (int x = 0; x < w; ++x) { d[x*3+0] = row[x*4+2]; d[x*3+1] = row[x*4+1]; d[x*3+2] = row[x*4+0]; }
                 }
-                FILE* f = std::fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/pimg_preview.bmp", "wb");
+                FILE* f = std::fopen(dump_path("pimg_preview.bmp").c_str(), "wb");
                 if (f) { std::fwrite(bmp.data(), 1, bmp.size(), f); std::fclose(f); }
             }
         } catch (const std::exception& ex) { if (lf) std::fprintf(lf, "exception: %s\n", ex.what()); }
@@ -529,9 +554,9 @@ int run(HINSTANCE hInstance, int cmd_show) {
                 float z = (float)atof(zm); if (z > 0.01f) castlemist::render::zoom(z);
             }
             if (isMap) {
-                castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_map.bmp");
+                castlemist::render::save_screenshot(dump_path("shot_map.bmp").c_str());
                 castlemist::render::set_layer_visible(castlemist::render::LAYER_COLLISION, true);
-                castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_map_coll.bmp");
+                castlemist::render::save_screenshot(dump_path("shot_map_coll.bmp").c_str());
                 castlemist::render::set_layer_visible(castlemist::render::LAYER_COLLISION, false);
                 auto zl = build_map_zone_layer(g_app->current_entry.decompressed, g_app->data_gw2.file_info.file_path);
                 if (zl && !zl->instances.empty()) {
@@ -544,27 +569,27 @@ int run(HINSTANCE hInstance, int cmd_show) {
                     castlemist::render::add_scene_models(zl->models, zi);
                 }
                 castlemist::render::set_layer_visible(castlemist::render::LAYER_ZONE, true);
-                castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_map_zone.bmp");
+                castlemist::render::save_screenshot(dump_path("shot_map_zone.bmp").c_str());
             } else {
                 castlemist::render::set_show_skeleton(false); // isolate the MESH
                 castlemist::render::set_animation(-1);
-                castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_bind.bmp");
+                castlemist::render::save_screenshot(dump_path("shot_bind.bmp").c_str());
                 // Debug: GW2_GIZMOTEST exercises the Blender-style gizmo headlessly --
                 // draws each mode, applies a programmatic transform, and checks that
                 // hit-testing an axis tip returns that axis.
                 if (std::getenv("GW2_GIZMOTEST")) {
-                    const char* base = "C:/Users/RIDWAN~1/AppData/Local/Temp/claude/";
+                    const std::string base = dump_dir();
                     castlemist::render::set_show_grid(true);
                     castlemist::render::set_gizmo_mode(castlemist::render::GizmoMode::Translate);
                     castlemist::render::reset_object_transform();
-                    castlemist::render::save_screenshot((std::string(base) + "shot_gizmo_move.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_gizmo_move.bmp").c_str());
                     float p[3] = {0.4f, 0.2f, 0.0f}, r[3] = {0, 35, 0}, s[3] = {1.2f, 1.0f, 0.8f};
                     castlemist::render::set_object_transform(p, r, s);
-                    castlemist::render::save_screenshot((std::string(base) + "shot_gizmo_xform.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_gizmo_xform.bmp").c_str());
                     castlemist::render::set_gizmo_mode(castlemist::render::GizmoMode::Rotate);
-                    castlemist::render::save_screenshot((std::string(base) + "shot_gizmo_rot.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_gizmo_rot.bmp").c_str());
                     castlemist::render::set_gizmo_mode(castlemist::render::GizmoMode::Scale);
-                    castlemist::render::save_screenshot((std::string(base) + "shot_gizmo_scale.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_gizmo_scale.bmp").c_str());
                     castlemist::render::reset_object_transform();
                     castlemist::render::set_gizmo_mode(castlemist::render::GizmoMode::Translate);
                     // Simulate a drag along +Y: begin near center, move up on screen.
@@ -574,13 +599,13 @@ int run(HINSTANCE hInstance, int cmd_show) {
                     if (grabbed) { castlemist::render::gizmo_update(cx, cy - 160); castlemist::render::gizmo_end(); }
                     float op[3], orr[3], os[3];
                     castlemist::render::get_object_transform(op, orr, os);
-                    FILE* gf = std::fopen((std::string(base) + "gizmotest.txt").c_str(), "w");
+                    FILE* gf = std::fopen((base + "gizmotest.txt").c_str(), "w");
                     if (gf) {
                         std::fprintf(gf, "pick@center=%d grabbed=%d after-drag pos=(%.3f,%.3f,%.3f)\n", hit,
                                      grabbed ? 1 : 0, op[0], op[1], op[2]);
                         std::fclose(gf);
                     }
-                    castlemist::render::save_screenshot((std::string(base) + "shot_gizmo_drag.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_gizmo_drag.bmp").c_str());
                 }
                 // Debug: GW2_LODTEST dumps wireframe at LOD0 vs the highest LOD (to see
                 // triangle reduction) + a reduced-texture shot, then restores.
@@ -589,21 +614,21 @@ int run(HINSTANCE hInstance, int cmd_show) {
                     std::printf("LODTEST: submeshes=%d maxLODs=%d\n", nsub, maxlod);
                     castlemist::render::set_mode(castlemist::render::RenderMode::Wireframe);
                     castlemist::render::set_submesh_lod(-1, 0);
-                    castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_lod0.bmp");
+                    castlemist::render::save_screenshot(dump_path("shot_lod0.bmp").c_str());
                     castlemist::render::set_submesh_lod(-1, maxlod - 1);
-                    castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_lodmax.bmp");
+                    castlemist::render::save_screenshot(dump_path("shot_lodmax.bmp").c_str());
                     castlemist::render::set_submesh_lod(-1, 0);
                     castlemist::render::set_mode(castlemist::render::RenderMode::Full);
                     castlemist::render::set_submesh_tex_reduced(-1, true);
-                    castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_texreduced.bmp");
+                    castlemist::render::save_screenshot(dump_path("shot_texreduced.bmp").c_str());
                     castlemist::render::set_submesh_tex_reduced(-1, false);
                 }
                 // Baked particle/light effects test: warm the sim over real time
                 // (each save_screenshot renders one frame with wall-clock dt), then
                 // capture two frames to prove the effects animate on an idle model.
                 if (std::getenv("GW2_FXTEST")) {
-                    const char* base = "C:/Users/RIDWAN~1/AppData/Local/Temp/claude/";
-                    FILE* lg = fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/fxtest.txt", "w");
+                    const std::string base = dump_dir();
+                    FILE* lg = fopen(dump_path("fxtest.txt").c_str(), "w");
                     int c=0,e=0,l=0,live=0;
                     castlemist::render::effect_stats(c,e,l,live);
                     if (lg) fprintf(lg, "clouds=%d emitters=%d lights=%d\n", c,e,l);
@@ -628,11 +653,11 @@ int run(HINSTANCE hInstance, int cmd_show) {
                 // sim built), locked>0 (top band pinned), maxDisp grows > 0 while the
                 // draped BMP differs from the rest BMP.
                 if (std::getenv("GW2_CLOTHTEST")) {
-                    const char* base = "C:/Users/RIDWAN~1/AppData/Local/Temp/claude/";
-                    FILE* lg = fopen("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/clothtest.txt", "w");
+                    const std::string base = dump_dir();
+                    FILE* lg = fopen(dump_path("clothtest.txt").c_str(), "w");
                     castlemist::render::set_mode(castlemist::render::RenderMode::Full);
                     castlemist::render::render();
-                    castlemist::render::save_screenshot((std::string(base) + "shot_cloth_rest.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_cloth_rest.bmp").c_str());
                     if (lg) fprintf(lg, "has_cloth=%d\n", castlemist::render::has_cloth() ? 1 : 0);
                     castlemist::render::set_cloth_enabled(true);
                     if (lg) fprintf(lg, "cloth_enabled=%d\n", castlemist::render::cloth_enabled() ? 1 : 0);
@@ -640,20 +665,20 @@ int run(HINSTANCE hInstance, int cmd_show) {
                     for (int i = 0; i < 120; ++i) { castlemist::render::render(); Sleep(16); }  // ~2 s of draping
                     castlemist::render::cloth_stats(v, lk, mx, mn);
                     if (lg) fprintf(lg, "verts=%d locked=%d maxDisp=%.3f meanDisp=%.3f\n", v, lk, mx, mn);
-                    castlemist::render::save_screenshot((std::string(base) + "shot_cloth_draped.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_cloth_draped.bmp").c_str());
                     // Wind test: blow +X and let it settle, prove the sheet reacts.
                     castlemist::render::set_cloth_wind(600.0f, 0.0f, 0.0f);
                     for (int i = 0; i < 90; ++i) { castlemist::render::render(); Sleep(16); }
                     castlemist::render::cloth_stats(v, lk, mx, mn);
                     if (lg) fprintf(lg, "after wind: maxDisp=%.3f meanDisp=%.3f\n", mx, mn);
-                    castlemist::render::save_screenshot((std::string(base) + "shot_cloth_wind.bmp").c_str());
+                    castlemist::render::save_screenshot((base + "shot_cloth_wind.bmp").c_str());
                     castlemist::render::set_cloth_wind(0, 0, 0);
                     castlemist::render::set_cloth_enabled(false);
                     if (lg) fclose(lg);
                 }
                 // Real game (bgfx DXBC) shaders: bind pose first.
                 castlemist::render::set_mode(castlemist::render::RenderMode::GameShader);
-                castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_shader.bmp");
+                castlemist::render::save_screenshot(dump_path("shot_shader.bmp").c_str());
                 // Accurate Granny animation + original DXBC shaders together: play the
                 // first real motion clip and capture two distinct frames in Shader mode.
                 {
@@ -662,9 +687,9 @@ int run(HINSTANCE hInstance, int cmd_show) {
                         float du = castlemist::render::animation_duration(motion);
                         castlemist::render::set_animation(motion);
                         castlemist::render::set_anim_time(du * 0.30f);
-                        castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_shader_anim1.bmp");
+                        castlemist::render::save_screenshot(dump_path("shot_shader_anim1.bmp").c_str());
                         castlemist::render::set_anim_time(du * 0.70f);
-                        castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_shader_anim2.bmp");
+                        castlemist::render::save_screenshot(dump_path("shot_shader_anim2.bmp").c_str());
                     }
                 }
                 castlemist::render::set_animation(-1);
@@ -680,7 +705,7 @@ int run(HINSTANCE hInstance, int cmd_show) {
                     if (best >= 0) {
                         castlemist::render::set_animation(best);
                         castlemist::render::set_anim_time(bestDur * 0.5f);
-                        castlemist::render::save_screenshot("C:/Users/RIDWAN~1/AppData/Local/Temp/claude/shot_clip.bmp");
+                        castlemist::render::save_screenshot(dump_path("shot_clip.bmp").c_str());
                     }
                     castlemist::render::set_animation(-1);
                 }
