@@ -8,7 +8,26 @@ launching the game.
 
 Win32 + Direct3D 11, C++20, built with MinGW-w64.
 
-![castlemist browsing Gw2.dat](docs/assets/screenshot-dark.png)
+![castlemist previewing a model from Gw2.dat](docs/assets/screenshot-model.png)
+
+A MODL entry with its materials resolved: submesh texture strip on the right
+(diffuse, normal and the rest, each with its format, mip count and the fileId it
+came from), LOD and full/reduced texture selectors, and the transform gizmo.
+
+## What it previews
+
+| | |
+| --- | --- |
+| ![](docs/assets/screenshot-texture.png) | ![](docs/assets/screenshot-pimg.png) |
+| **Textures** — ATEX/ATEP/ATEU/ATET and standalone DDS decoded to RGBA, with the alpha channel toggleable. | **PIMG atlases** — paged image tables composited into a single preview. |
+| ![](docs/assets/screenshot-strs.png) | ![](docs/assets/screenshot-content.png) |
+| **String tables** — raw UTF-16 records decode directly; packed ones are RC4-encrypted per stringId and are marked as such rather than shown as wrong text. | **Content datastores** — cntc records browsed by type, with each entry's assets and fields. |
+
+Every panel is driven by what the extractor detected, so an unrecognised entry
+falls back to a hex view rather than an error. The right-hand pane always shows
+the archive header, the raw MFT record, and -- when an index has been built --
+what `gw2index` recorded for that entry, including whether its compression flag
+told the truth.
 
 ## Themes
 
@@ -16,10 +35,6 @@ Dark by default, light, or a custom accent -- **View > Theme**. The custom mode
 picks its base palette from the accent's luminance, so a bright accent lands on
 a light base and a dark one on a dark base rather than leaving you to work out
 which is readable.
-
-| light | custom accent |
-| --- | --- |
-| ![](docs/assets/screenshot-light.png) | ![](docs/assets/screenshot-custom.png) |
 
 > Two controls -- the search box and the tab strip -- still render light in dark
 > mode. They are common controls that ignore the brush from `WM_CTLCOLOR*` and
