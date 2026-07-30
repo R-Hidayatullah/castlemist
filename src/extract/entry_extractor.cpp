@@ -32,21 +32,28 @@ namespace castlemist::extract {
 // `raw_bytes` was read off disk -- this is what makes it safe to run on a
 // background thread. `dat_path` is used to resolve model textures.
 ExtractedEntry decompress_raw_entry(std::vector<uint8_t> raw_bytes, uint16_t compression_flag,
-                                    const std::string& dat_path) {
+                                    const std::string& dat_path, bool already_plain) {
     ExtractedEntry result;
     result.compressed = raw_bytes;
 
-    std::vector<uint8_t> stripped = castlemist::cmp::strip_crc32(raw_bytes);
-
     std::vector<uint8_t> file_bytes;
-    if (compression_flag != 0) {
-        if (stripped.size() < 8) {
-            throw std::runtime_error("Entry too small to contain a Method0 header.");
-        }
-        uint32_t uncompressed_size = read_u32_le(stripped, 4);
-        file_bytes = castlemist::cmp::decompress_method0(std::span<const uint8_t>(stripped).subspan(8), uncompressed_size);
+    if (already_plain) {
+        // A loose file off disk is the finished asset already: it carries no MFT
+        // CRC32C framing and no Method0 header, so stripping or inflating it here
+        // would corrupt it. Only the unwrapping is skipped -- every format sniffer
+        // below reads `decompressed` and neither knows nor cares where it came from.
+        file_bytes = std::move(raw_bytes);
     } else {
-        file_bytes = std::move(stripped);
+        std::vector<uint8_t> stripped = castlemist::cmp::strip_crc32(raw_bytes);
+        if (compression_flag != 0) {
+            if (stripped.size() < 8) {
+                throw std::runtime_error("Entry too small to contain a Method0 header.");
+            }
+            uint32_t uncompressed_size = read_u32_le(stripped, 4);
+            file_bytes = castlemist::cmp::decompress_method0(std::span<const uint8_t>(stripped).subspan(8), uncompressed_size);
+        } else {
+            file_bytes = std::move(stripped);
+        }
     }
 
     result.decompressed = std::move(file_bytes);
@@ -271,4 +278,36 @@ ExtractedEntry extract_entry(Gw2Dat& data_gw2, uint32_t mft_index) {
 ExtractedEntry extract_entry(const std::string& file_path, const MftData& entry) {
     std::vector<uint8_t> raw = read_entry_bytes(file_path, entry);
     return decompress_raw_entry(std::move(raw), entry.compression_flag, file_path);
+}
+
+ExtractedEntry extract_loose_file(std::vector<uint8_t> bytes, const std::string& source_path) {
+    // Two kinds of file land here and they cannot be told apart by extension:
+    // a finished asset (a .dds/.bik, or this app's own "Export Decompressed"),
+    // and a raw MFT dump from "Export Compressed" that still has CRC32C framing
+    // and possibly a Method0 payload. Try the plain reading first because it
+    // cannot throw or mangle anything, and only fall back to unwrapping when it
+    // yields nothing recognisable.
+    ExtractedEntry plain;
+    bool plain_ok = false;
+    try {
+        plain = decompress_raw_entry(bytes, 0, source_path, /*already_plain=*/true);
+        plain_ok = true;
+    } catch (const std::exception&) {
+    }
+    if (plain_ok && plain.kind != PreviewKind::None) return plain;
+
+    // Compressed first: an entry that was stored uncompressed still needs its
+    // CRC32C stripped, which flag 0 handles on the second pass.
+    for (uint16_t flag : {uint16_t{1}, uint16_t{0}}) {
+        try {
+            ExtractedEntry unwrapped = decompress_raw_entry(bytes, flag, source_path, /*already_plain=*/false);
+            if (unwrapped.kind != PreviewKind::None) return unwrapped;
+        } catch (const std::exception&) {
+        }
+    }
+
+    // Nothing recognised it. Return the plain reading anyway so the hex view still
+    // shows the real file rather than a failed unwrap of it.
+    if (plain_ok) return plain;
+    return decompress_raw_entry(std::move(bytes), 0, source_path, /*already_plain=*/true);
 }

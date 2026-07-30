@@ -58,6 +58,7 @@ constexpr UINT_PTR ID_FILE_LOAD_TEMPLATE = 1005;
 constexpr UINT_PTR ID_FILE_LOAD_KEYS = 1006;
 constexpr UINT_PTR ID_FILE_OPEN_INDEX = 1007;
 constexpr UINT_PTR ID_TOOLS_DECODE_LINK = 1008;
+constexpr UINT_PTR ID_FILE_OPEN_LOOSE = 1009;  // 1008 is taken; WM_COMMAND ids must be unique
 // View > Theme.
 constexpr UINT_PTR ID_VIEW_THEME_DARK   = 1010;
 constexpr UINT_PTR ID_VIEW_THEME_LIGHT  = 1011;
@@ -488,6 +489,7 @@ void try_autoload_keys();
 void do_export(HWND hwnd, bool export_compressed);
 std::string combo_sel(HWND combo);
 void apply_filters();
+void do_open_loose_file(HWND hwnd);
 void do_search();
 void do_clear_search();
 

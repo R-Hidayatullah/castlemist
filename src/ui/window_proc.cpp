@@ -19,6 +19,7 @@ HMENU build_menu() {
     g_file_menu = CreatePopupMenu();
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_OPEN, L"&Open .dat...");
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_OPEN_INDEX, L"Open &Index DB... (gw2index/gw2local)");
+    AppendMenuW(g_file_menu, MF_STRING, ID_FILE_OPEN_LOOSE, L"Open &File... (outside a .dat)");
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_LOAD_TEMPLATE, L"Load Struct &JSON... (gw2_packfile.json)");
     AppendMenuW(g_file_menu, MF_STRING, ID_FILE_LOAD_KEYS, L"Load String &Keys... (textkeys.csv)");
     AppendMenuW(g_file_menu, MF_SEPARATOR, 0, nullptr);
@@ -870,6 +871,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         switch (LOWORD(wparam)) {
         case ID_FILE_OPEN:
             do_open_file(hwnd);
+            return 0;
+        case ID_FILE_OPEN_LOOSE:
+            do_open_loose_file(hwnd);
             return 0;
         case ID_FILE_OPEN_INDEX:
             do_open_index(hwnd);

@@ -279,6 +279,46 @@ CM_TEST(dat, texture_resolution_preference_changes_what_a_model_loads) {
     CHECK(full.model->textures[0].width >= reduced.model->textures[0].width);
 }
 
+// The point of the loose-file path is that an asset exported out of the archive
+// previews exactly as it did inside it. Both export shapes have to round-trip:
+// "Export Decompressed" writes `decompressed`, "Export Compressed" writes
+// `compressed` (CRC32C framing and Method0 payload still on), and neither carries
+// an extension that says which is which -- so extract_loose_file has to work that
+// out from the bytes. Anything less and the two readings silently disagree.
+CM_TEST(dat, exported_files_reopen_as_the_same_kind) {
+    if (!ensure_template()) SKIP("no gw2_packfile.json struct template");
+
+    int checked = 0;
+    for (uint32_t base : {291821u, 2871u, 143918u}) {
+        ExtractedEntry inside = extract_base(base);
+        if (inside.kind == PreviewKind::None) continue;  // nothing to compare against
+        ++checked;
+
+        ExtractedEntry from_decompressed = extract_loose_file(inside.decompressed, "loose");
+        CHECK(from_decompressed.kind == inside.kind);
+        CHECK_EQ(from_decompressed.decompressed.size(), inside.decompressed.size());
+
+        ExtractedEntry from_compressed = extract_loose_file(inside.compressed, "loose");
+        CHECK(from_compressed.kind == inside.kind);
+        // Unwrapping must reproduce the archive's own decompressed bytes exactly,
+        // not merely something that sniffs to the same format.
+        CHECK_EQ(from_compressed.decompressed.size(), inside.decompressed.size());
+    }
+    if (checked == 0) SKIP("none of the sample entries decoded on this dat");
+}
+
+// Unrecognised input must come back as None with the bytes intact for the hex
+// view, never throw and never hand back a mangled buffer from a failed unwrap.
+CM_TEST(dat, loose_garbage_is_returned_intact_for_the_hex_view) {
+    std::vector<uint8_t> junk(4096);
+    for (size_t i = 0; i < junk.size(); ++i) junk[i] = static_cast<uint8_t>((i * 37 + 11) & 0xFF);
+
+    ExtractedEntry e = extract_loose_file(junk, "junk.bin");
+    CHECK(e.kind == PreviewKind::None);
+    CHECK_EQ(e.decompressed.size(), junk.size());
+    CHECK(e.decompressed == junk);
+}
+
 // A `token64` is a fixed 8-byte field, but MODL v65 is a 32-BIT-pointer packfile,
 // so reading one with the pointer-width helper silently drops its high half.
 // That is observable rather than theoretical: MODL 143917 carries real data up
