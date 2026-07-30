@@ -825,6 +825,107 @@ void cmd_model(const Args& a) {
 }
 
 // Scan a range of MODL entries and report which carry particle clouds / lights.
+// Survey how AMAT effect selection actually resolves across real models.
+//
+// Effect selection has two paths: the engine's own token rule, and the content
+// heuristic that runs when an AMAT offers no token match. Which one fires, and
+// how often, is not something to assume -- this walks real MODLs, resolves every
+// material to its AMAT the same way the renderer does, and reports the split
+// along with the structure counts that constrain how selection can work at all.
+//
+//   gw2dat_cli matcensus --dat <Gw2.dat> --template <json> [--count N] [--step N]
+void cmd_matcensus(const Args& a) {
+    std::string tpl_path = need(a, "template");
+    std::ifstream tin(tpl_path, std::ios::binary);
+    if (!tin) fail("cannot open template: " + tpl_path);
+    json tpl; try { tin >> tpl; } catch (const std::exception& ex) { fail(std::string("template JSON: ") + ex.what()); }
+
+    Gw2Dat dat;
+    load_dat_file(dat, need(a, "dat"));
+    size_t offset = has(a, "offset") ? to_u64(a.at("offset")) : 0;
+    size_t count  = has(a, "count")  ? to_u64(a.at("count"))  : 20000;
+    size_t step   = has(a, "step")   ? to_u64(a.at("step"))   : 1;
+    size_t wantModels = has(a, "models") ? to_u64(a.at("models")) : 400;
+    size_t end = std::min(dat.mft_data_list.size(), offset + count);
+
+    // Many materials name the same AMAT; decompressing it once per material would
+    // dominate the run. Cache the bytes, not the parse -- the parse depends on the
+    // material token and so differs per material.
+    std::map<uint32_t, std::vector<uint8_t>> amat_cache;
+
+    size_t models = 0, materials = 0, resolved = 0, byToken = 0, byHeuristic = 0;
+    size_t opaque = 0, blended = 0, noShader = 0, noAmat = 0;
+    std::map<uint32_t, size_t> passHist, techHist;
+    std::map<int, size_t> qualityHist;
+
+    for (size_t i = offset; i < end && models < wantModels; i += step) {
+        const MftData& e = dat.mft_data_list[i];
+        if (e.size < 2000) continue;
+        std::vector<uint8_t> data;
+        try { data = decompress_entry(read_entry_bytes(dat.file_info.file_path, e), e.compression_flag); }
+        catch (...) { continue; }
+        if (data.size() < 16 || data[0] != 'P' || data[1] != 'F') continue;
+        if (tag_at(data, 8) != "MODL") continue;
+
+        castlemist::model::Model model;
+        try { model = castlemist::model::Extractor(data, tpl).extract(); } catch (...) { continue; }
+        if (model.materials.empty()) continue;
+        ++models;
+
+        for (const auto& m : model.materials) {
+            ++materials;
+            if (m.materialFile == 0) { ++noAmat; continue; }
+            uint32_t fnBase = get_by_base_id(dat, m.materialFile);
+            if (fnBase == 0 || fnBase - 1 >= dat.mft_data_list.size()) { ++noAmat; continue; }
+
+            auto it = amat_cache.find(fnBase);
+            if (it == amat_cache.end()) {
+                std::vector<uint8_t> bytes;
+                const MftData& ae = dat.mft_data_list[fnBase - 1];
+                try { bytes = decompress_entry(read_entry_bytes(dat.file_info.file_path, ae), ae.compression_flag); }
+                catch (...) { bytes.clear(); }
+                it = amat_cache.emplace(fnBase, std::move(bytes)).first;
+            }
+            if (it->second.empty()) { ++noAmat; continue; }
+
+            castlemist::model::AmatSet set;
+            try { set = castlemist::model::Extractor(it->second, tpl).extractAmat(m.token); }
+            catch (...) { ++noAmat; continue; }
+            if (!set.error.empty()) { ++noAmat; continue; }
+
+            ++resolved;
+            techHist[set.techniqueCount]++;
+            passHist[set.maxPassCount]++;
+            qualityHist[set.selectedQuality]++;
+            if (set.tokenMatched) ++byToken; else ++byHeuristic;
+            if (set.psIndex < 0) ++noShader;
+            else if (castlemist::model::isBlendState(set.renderState)) ++blended;
+            else ++opaque;
+        }
+    }
+
+    auto pct = [](size_t n, size_t d) { return d ? (100.0 * (double)n / (double)d) : 0.0; };
+    json j;
+    j["ok"] = true;
+    j["models"] = models;
+    j["materials"] = materials;
+    j["resolved"] = resolved;
+    j["unresolvableAmat"] = noAmat;
+    j["selection"] = {{"byEngineToken", byToken}, {"byHeuristic", byHeuristic},
+                      {"tokenMatchPct", pct(byToken, resolved)}};
+    // The calibration target: a real frame's material pass is ~82% blend-disabled.
+    j["draw"] = {{"opaque", opaque}, {"blended", blended}, {"noShader", noShader},
+                 {"blendedPct", pct(blended, opaque + blended)}};
+    json th = json::object(); for (auto& kv : techHist) th[std::to_string(kv.first)] = kv.second;
+    json ph = json::object(); for (auto& kv : passHist) ph[std::to_string(kv.first)] = kv.second;
+    json qh = json::object(); for (auto& kv : qualityHist) qh[std::to_string(kv.first)] = kv.second;
+    j["techniqueCountHistogram"] = th;   // quality levels per AMAT
+    j["maxPassCountHistogram"] = ph;     // does any AMAT carry more than one pass?
+    j["selectedQualityHistogram"] = qh;  // 4 ultra / 3 high / 2 medium / 1 low / 0 unknown
+    j["uniqueAmats"] = amat_cache.size();
+    emit(j);
+}
+
 void cmd_effscan(const Args& a) {
     std::string tpl_path = need(a, "template");
     std::ifstream tin(tpl_path, std::ios::binary);
@@ -1335,6 +1436,7 @@ int main(int argc, char** argv) {
         else if (cmd == "scancloth") cmd_scancloth(a);
         else if (cmd == "amat") cmd_amat(a);
         else if (cmd == "effscan") cmd_effscan(a);
+        else if (cmd == "matcensus") cmd_matcensus(a);
         else if (cmd == "compress") cmd_compress(a);
         else if (cmd == "decompress") cmd_decompress(a);
         else if (cmd == "encode-texture") cmd_encode_texture(a);

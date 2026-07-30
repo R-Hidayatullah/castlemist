@@ -341,6 +341,13 @@ struct AmatSet {
     /// remap chain, or the default -- so the content heuristic picked instead.
     /// Tracking it is what makes "how often are we still guessing?" measurable.
     bool tokenMatched = false;
+    /// @name Structure counts (for surveying the archive, not for rendering)
+    /// @{
+    uint32_t techniqueCount = 0;  ///< quality levels present
+    uint32_t maxPassCount = 0;    ///< largest `passes[]` across techniques
+    uint32_t effectCount = 0;     ///< total effects across every technique/pass
+    int selectedQuality = -1;     ///< ::amatQualityRank of the tier selection used
+    /// @}
     std::string error;
 };
 // shaderPassFlags decoded from the engine's own draw path (Gw2-64
@@ -1073,8 +1080,11 @@ public:
             { size_t qo; json qf;
               if (fieldOffset(tT, "quality", qo, qf)) qrank = amatQualityRank(rd32(tb + (size_t)ti * tS + qo)); }
             size_t pb = iter(tT, tb + (size_t)ti * tS, "passes", pT, pS, pN);
+            out.techniqueCount = tN;
+            if (pN > out.maxPassCount) out.maxPassCount = pN;
             for (uint32_t pi = 0; pb && pi < pN; ++pi) {
                 size_t eb = iter(pT, pb + (size_t)pi * pS, "effects", eT, eS, eN);
+                out.effectCount += eN;
                 for (uint32_t ei = 0; eb && ei < eN; ++ei) {
                     size_t ee = eb + (size_t)ei * eS; size_t o; json f;
                     int ps = -1, vs = -1;
@@ -1199,6 +1209,7 @@ public:
         // `low` shader win the tie on sampler count.
         int bestQ = -1;
         for (const auto& c : cands) if (c.qrank > bestQ) bestQ = c.qrank;
+        out.selectedQuality = bestQ;
         std::vector<Cand> tier;
         for (const auto& c : cands) if (c.qrank == bestQ) tier.push_back(c);
 
