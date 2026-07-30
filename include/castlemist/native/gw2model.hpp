@@ -111,6 +111,11 @@ struct MatConstant {
 };
 struct Material {
     uint32_t index = 0;
+    // The material's own token64 -- the key the engine matches against
+    // AmatEffectV1::token to choose which shader in the AMAT draws this material
+    // (sub_140BFAD20, passed as `materialToken64` from the draw object at +64).
+    // Without it, effect selection has to guess from shader content.
+    uint64_t token = 0;
     uint32_t materialId = 0;    // selects the built-in shader (0..57) or 58=custom
     uint32_t materialFile = 0;  // fileId of the material's .amat/GRMT file (0 if none)
     uint32_t materialFlags = 0;
@@ -330,6 +335,19 @@ struct AmatSet {
     // GLOSS map in alpha, and punching those full of holes corrupts the light buffer.
     bool prepassCutout = false;
     bool hasPrepass = false;             // a normal-prepass shader was found at all
+    /// @brief The effect was chosen by the engine's token rule, not by heuristic.
+    ///
+    /// False means this AMAT offered no effect matching the material's token, the
+    /// remap chain, or the default -- so the content heuristic picked instead.
+    /// Tracking it is what makes "how often are we still guessing?" measurable.
+    bool tokenMatched = false;
+    /// @name Structure counts (for surveying the archive, not for rendering)
+    /// @{
+    uint32_t techniqueCount = 0;  ///< quality levels present
+    uint32_t maxPassCount = 0;    ///< largest `passes[]` across techniques
+    uint32_t effectCount = 0;     ///< total effects across every technique/pass
+    int selectedQuality = -1;     ///< ::amatQualityRank of the tier selection used
+    /// @}
     std::string error;
 };
 // shaderPassFlags decoded from the engine's own draw path (Gw2-64
@@ -371,6 +389,61 @@ inline bool blendFactorUsesSrcAlpha(uint32_t f) { return f == 5 || f == 6 || f =
 inline bool blendReadsSrcAlpha(uint64_t st) {
     uint32_t blend = (uint32_t)((st >> 12) & 0xffffu);
     return blendFactorUsesSrcAlpha(blend & 0xf) || blendFactorUsesSrcAlpha((blend >> 4) & 0xf);
+}
+
+// --- effect selection by token (the engine's own rule) ---------------------
+//
+// `sub_140BFAD20` (BgfxShader.cpp ~1069-1200) picks the effect inside
+// `techniques[quality].passes[passIdx]` by looking its **token** up
+// (`sub_140BF4630(pass, token, &idx)`) -- never by sampler count or shader
+// content. The token comes from the draw object at +64, which is
+// `ModelMaterialDataV*::token`.
+//
+// A token that is not present in the pass falls through a hardcoded remap chain
+// and finally to the default below. That default is not a rare edge case: in
+// every AMAT sampled it is `effects[0]`, and on AMAT 19896 it resolves to
+// pixelShaderIndex 3 -- independently confirmed as that material's real colour
+// shader. So honouring the default alone already beats guessing.
+inline constexpr uint64_t kAmatDefaultEffectToken = 183330ull;
+
+/// @brief Decode a base-23 packed GW2 token32 to its lowercase name.
+///
+/// Engine: `Token::Decode` (sub_140E3B360, Token.cpp:30). The alphabet has 23
+/// letters -- no j/q/z -- and the subtraction wraps unsigned exactly as there.
+/// Verified against known values: 805394902 -> "high", 881522146 -> "medium",
+/// 805317257 -> "low".
+inline std::string decodeToken23(uint32_t token) {
+    static const char* kAlpha = "abcdefghiklmnopvrstuwxy";
+    uint32_t v = token - 0x30000000u;
+    std::string out;
+    while (v) { out.push_back(kAlpha[v % 23]); v /= 23; }
+    return out;
+}
+
+/// @brief Rank an AMAT technique's quality token; higher is better.
+///
+/// `techniques[]` are QUALITY LEVELS, not passes (selector `sub_140BFBFD0`
+/// against GR_SHADER_QUALITIES; the game picks one via `m_techniqueIndex` from
+/// the graphics settings). A viewer has no such slider, so it takes the best on
+/// offer. Unknown tokens rank lowest but stay usable.
+inline int amatQualityRank(uint32_t qualityToken) {
+    const std::string q = decodeToken23(qualityToken);
+    if (q == "ultra")  return 4;
+    if (q == "high")   return 3;
+    if (q == "medium") return 2;
+    if (q == "low")    return 1;
+    return 0;
+}
+
+/// @brief One hop of the engine's hardcoded effect-token fallback chain.
+/// @return The token to try next, or ::kAmatDefaultEffectToken to stop.
+inline uint64_t amatRemapEffectToken(uint64_t t) {
+    switch (t) {
+        case 0x1481311ECull:       return 0x51C59061370654ull;
+        case 0x1779028991ECull:    return 0x5DE40A268A40A4ull;
+        case 0x2C26C0B64F711ECull: return 0x6584D816C9EEull;
+        default:                   return kAmatDefaultEffectToken;
+    }
 }
 
 // The uniforms that only a forward-lit GW2 material shader declares: the SH
@@ -909,9 +982,14 @@ public:
     }
 
     // Walk the BGFX chunk (AmatMaterialV*) of an AMAT packfile: extract every
-    // shader's DXBC + sampler bindings, and resolve technique[0]/pass[0]/
-    // effect[0] to the matched vertex+pixel shader indices.
-    AmatSet extractAmat() {
+    // shader's DXBC + sampler bindings, then resolve the effect that draws this
+    // material to its vertex+pixel shader pair -- by the engine's token rule
+    // where the AMAT allows it, else by shader content.
+    /// @brief Resolve an AMAT to the shader pair that draws one material.
+    /// @param materialToken `ModelMaterialDataV*::token` -- the key the engine
+    ///        matches against `AmatEffectV1::token`. 0 = unknown, which still
+    ///        tries the engine's default token before any heuristic.
+    AmatSet extractAmat(uint64_t materialToken = 0) {
         AmatSet out;
         std::string root; uint16_t ver = 0;
         size_t bgfx = findChunk("BGFX", &root, &ver);
@@ -942,7 +1020,11 @@ public:
                         for (uint32_t j = 0; sb && j < sn; ++j) {
                             size_t se2 = sb + (size_t)j * smSize; size_t o3; json f3;
                             AmatSamplerBind b;
-                            if (fieldOffset(smT, "token", o3, f3)) b.token = rdPtr(se2 + o3);
+                            // token64 is a fixed 8 bytes, independent of the packfile's
+                            // pointer width -- rd64, not rdPtr. (AMATs happen to be
+                            // 64-bit PF v5 so rdPtr read it correctly, but relying on
+                            // that couples an 8-byte field to an unrelated property.)
+                            if (fieldOffset(smT, "token", o3, f3)) b.token = rd64(se2 + o3);
                             if (fieldOffset(smT, "textureIndex", o3, f3)) b.textureIndex = rd32(se2 + o3);
                             if (fieldOffset(smT, "textureSlot", o3, f3)) b.textureSlot = rd32(se2 + o3);
                             sh.samplers.push_back(b);
@@ -985,20 +1067,32 @@ public:
             int nsamp;   // texture bindings -> permutation richness
             bool lit;    // pixel shader declares the SH sun/ambient rig
             bool blend;  // renderState carries real bgfx blend bits
+            uint64_t tok;    // AmatEffectV1::token -- the engine's selection key
+            int qrank;       // quality of the technique this came from (higher = better)
         };
         std::vector<Cand> cands;
         std::string tT, pT, eT, vT; int tS = 0, pS = 0, eS = 0, vS = 0; uint32_t tN = 0, pN = 0, eN = 0, vN = 0;
         size_t tb = iter(root, bgfx, "techniques", tT, tS, tN);
         for (uint32_t ti = 0; tb && ti < tN; ++ti) {
+            // techniques[] are quality levels; remember which one each candidate
+            // came from so the tier filter below can keep only the best.
+            int qrank = 0;
+            { size_t qo; json qf;
+              if (fieldOffset(tT, "quality", qo, qf)) qrank = amatQualityRank(rd32(tb + (size_t)ti * tS + qo)); }
             size_t pb = iter(tT, tb + (size_t)ti * tS, "passes", pT, pS, pN);
+            out.techniqueCount = tN;
+            if (pN > out.maxPassCount) out.maxPassCount = pN;
             for (uint32_t pi = 0; pb && pi < pN; ++pi) {
                 size_t eb = iter(pT, pb + (size_t)pi * pS, "effects", eT, eS, eN);
+                out.effectCount += eN;
                 for (uint32_t ei = 0; eb && ei < eN; ++ei) {
                     size_t ee = eb + (size_t)ei * eS; size_t o; json f;
                     int ps = -1, vs = -1;
                     if (fieldOffset(eT, "pixelShaderIndex", o, f)) ps = (int)rd32(ee + o);
                     uint32_t spf = 0;
                     if (fieldOffset(eT, "shaderPassFlags", o, f)) spf = rd32(ee + o);
+                    uint64_t etok = 0;
+                    if (fieldOffset(eT, "token", o, f)) etok = rd64(ee + o);
                     if (getenv("AMATDBG")) { uint64_t rsv=0; size_t ro; json rf;
                         if (fieldOffset(eT,"renderState",ro,rf)) rsv=rd64(ee+ro);
                         std::fprintf(stderr,"[amat] tech%u pass%u eff%u ps=%d renderState=0x%llx passFlags=0x%x\n",
@@ -1067,7 +1161,7 @@ public:
                         if (psh.alphaIsConstant && blendReadsSrcAlpha(rstate)) rstate &= ~kBgfxBlendMask;
                         if (spf & kAmatPassNoColor) { /* depth-only pass */ }
                         else if (psh.samplesSlot0 && (psh.hasShLighting || !psh.writesNormalEncode))
-                            cands.push_back({ps, vs, rstate, spf, ns, psh.hasShLighting, isBlendState(rstate)});
+                            cands.push_back({ps, vs, rstate, spf, ns, psh.hasShLighting, isBlendState(rstate), etok, qrank});
                         if (getenv("AMATDBG")) std::fprintf(stderr,
                             "[amat] effT=%s ef=%d@%zu=0x%llx  varT=%s vf=%d@%zu=0x%llx blend=%d "
                             "cand=%d normalPrepass=%d sh=%d slot0=%d nsamp=%d passFlags=0x%x\n",
@@ -1101,15 +1195,46 @@ public:
             if (sh.hasDiscard) { out.prepassCutout = true; break; }
         }
 
+        // Engine-order effect selection. `sub_140BFAD20` matches the material's own
+        // token against the pass's effects; a miss walks the hardcoded remap chain
+        // and then lands on the default token. Do the same here and hand the tier
+        // logic below only the effects the engine would actually have considered.
+        // A materialToken of 0 (caller has none) still tries the default, which is
+        // strictly better than going straight to content heuristics.
+        // The engine resolves the technique FIRST (by quality) and only then looks
+        // the effect up by token inside that technique's pass. Order matters: an
+        // AMAT repeats the same effect tokens at every quality level with different
+        // shaders -- AMAT 19896 carries the default token 183330 in all three
+        // (ps 3 / 46 / 94) -- so matching across a pooled candidate list would let a
+        // `low` shader win the tie on sampler count.
+        int bestQ = -1;
+        for (const auto& c : cands) if (c.qrank > bestQ) bestQ = c.qrank;
+        out.selectedQuality = bestQ;
+        std::vector<Cand> tier;
+        for (const auto& c : cands) if (c.qrank == bestQ) tier.push_back(c);
+
+        std::vector<Cand> picked;
+        for (uint64_t want = materialToken, hop = 0; hop < 3 && picked.empty(); ++hop) {
+            if (want) for (const auto& c : tier) if (c.tok == want) picked.push_back(c);
+            if (!picked.empty()) break;
+            uint64_t next = amatRemapEffectToken(want);
+            if (next == want) break;
+            want = next;
+        }
+        out.tokenMatched = !picked.empty();
+        // No token match at all -> the AMAT genuinely has nothing the engine's rule
+        // would select, so fall back to the content heuristic within the same tier.
+        const std::vector<Cand>& sel = picked.empty() ? tier : picked;
+
         bool anyLit = false;
-        for (const auto& c : cands) if (c.lit) { anyLit = true; break; }
+        for (const auto& c : sel) if (c.lit) { anyLit = true; break; }
         auto better = [&](const Cand& a, const Cand& b) {
             if (a.lit != b.lit) return a.lit;          // lit always wins
             return a.nsamp > b.nsamp;                  // then the richest permutation
         };
         const Cand* bestOpaque = nullptr;
         const Cand* bestBlend = nullptr;
-        for (const auto& c : cands) {
+        for (const auto& c : sel) {
             if (anyLit && !c.lit) continue;
             const Cand*& slot = c.blend ? bestBlend : bestOpaque;
             if (!slot || better(c, *slot)) slot = &c;
@@ -1526,6 +1651,9 @@ private:
             if (!matPtr) continue;
             Material mat; mat.index = i;
             size_t off; json fj;
+            // token64 is 8 bytes regardless of the packfile's pointer width, so read
+            // it with rd64 -- rdPtr would truncate to 4 on a 32-bit-ptr MODL (v65 is).
+            if (fieldOffset(matType, "token", off, fj))         mat.token         = rd64(matPtr + off);
             if (fieldOffset(matType, "materialId", off, fj))    mat.materialId    = rd32(matPtr + off);
             if (fieldOffset(matType, "materialFlags", off, fj)) mat.materialFlags = rd32(matPtr + off);
             if (fieldOffset(matType, "sortOrder", off, fj))     mat.sortOrder     = rd32(matPtr + off);
@@ -1543,7 +1671,10 @@ private:
                     MatTexture mt;
                     mt.fileId = decodeFilename(texType, texElem);
                     size_t so; json sfj;
-                    if (fieldOffset(texType, "token", so, sfj)) mt.token = rdPtr(texElem + so);
+                    // MODL v65 is a 32-bit-pointer PF, so rdPtr truncated this 8-byte
+                    // token64 to its low half (MODL 143917 texture 0 reads
+                    // 0x0060B401_67531924, of which rdPtr returned only 0x67531924).
+                    if (fieldOffset(texType, "token", so, sfj)) mt.token = rd64(texElem + so);
                     if (fieldOffset(texType, "textureFlags", so, sfj)) mt.flags = rd32(texElem + so);
                     if (fieldOffset(texType, "uvPSInputIndex", so, sfj)) mt.uvIndex = (uint8_t)d_[texElem + so];
                     mat.textures.push_back(mt);

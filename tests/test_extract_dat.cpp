@@ -20,9 +20,11 @@
 
 #include "castlemist/extract/entry_extractor.h"
 #include "castlemist/format/struct_template.h"
+#include "castlemist/native/gw2model.hpp"
 
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
 
 namespace {
@@ -275,4 +277,40 @@ CM_TEST(dat, texture_resolution_preference_changes_what_a_model_loads) {
     // Same texture count either way; only the dimensions may differ.
     CHECK_EQ(full.model->textures.size(), reduced.model->textures.size());
     CHECK(full.model->textures[0].width >= reduced.model->textures[0].width);
+}
+
+// A `token64` is a fixed 8-byte field, but MODL v65 is a 32-BIT-pointer packfile,
+// so reading one with the pointer-width helper silently drops its high half.
+// That is observable rather than theoretical: MODL 143917 carries real data up
+// there (texture 0's token is 0x0060B401_67531924, of which a 4-byte read returns
+// only 0x67531924). Nothing consumes these tokens yet, which is exactly why the
+// truncation survived -- so pin the width here before something starts matching
+// on them. The material token is also what game-shader effect selection keys on.
+CM_TEST(dat, model_token64_fields_keep_their_high_half) {
+    if (!ensure_template()) SKIP("no gw2_packfile.json struct template");
+
+    // MFT index 143917 -> baseId 143918.
+    ExtractedEntry e = extract_base(143918);
+    if (e.decompressed.empty()) SKIP("entry did not decompress");
+    std::shared_ptr<const nlohmann::json> tpl = castlemist::tpl::get();
+    if (!tpl) SKIP("no struct template");
+
+    castlemist::model::Model m;
+    try {
+        m = castlemist::model::Extractor(e.decompressed, *tpl).extract();
+    } catch (const std::exception&) {
+        SKIP("model did not parse");
+    }
+    if (m.materials.empty()) SKIP("model has no materials");
+
+    // Effect selection matches this against AmatEffectV1::token.
+    CHECK(m.materials[0].token != 0);
+
+    // At least one texture token must have a non-zero high half; if every one of
+    // them reads as a bare 32-bit value on this model, the read is truncating.
+    bool any_high_half = false;
+    for (const castlemist::model::Material& mat : m.materials)
+        for (const castlemist::model::MatTexture& t : mat.textures)
+            if ((t.token >> 32) != 0) any_high_half = true;
+    CHECK(any_high_half);
 }
