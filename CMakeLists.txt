@@ -98,8 +98,11 @@ castlemist_add_layer(sim    DEPS castlemist::extract ext::glm)
 castlemist_add_layer(render DEPS castlemist::extract castlemist::sim
                                  d3d11 dxgi d3dcompiler dxguid)
 
+# uxtheme: SetWindowTheme, for the dark scroll bars and list headers.
+# dwmapi is *not* linked -- DwmSetWindowAttribute is resolved with GetProcAddress
+# so the exe still starts on a Windows without it.
 castlemist_add_layer(ui     DEPS castlemist::render castlemist::db castlemist::extract
-                                 comctl32 comdlg32 shell32 user32 gdi32 advapi32)
+                                 comctl32 comdlg32 shell32 user32 gdi32 advapi32 uxtheme)
 
 
 # -----------------------------------------------------------------------------

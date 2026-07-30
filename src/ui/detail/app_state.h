@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "castlemist/native/gw2dat.h"
+#include "castlemist/ui/theme.h"
 
 #include "castlemist/db/index_db.h"
 #include "castlemist/extract/entry_extractor.h"
@@ -57,6 +58,11 @@ constexpr UINT_PTR ID_FILE_LOAD_TEMPLATE = 1005;
 constexpr UINT_PTR ID_FILE_LOAD_KEYS = 1006;
 constexpr UINT_PTR ID_FILE_OPEN_INDEX = 1007;
 constexpr UINT_PTR ID_TOOLS_DECODE_LINK = 1008;
+// View > Theme.
+constexpr UINT_PTR ID_VIEW_THEME_DARK   = 1010;
+constexpr UINT_PTR ID_VIEW_THEME_LIGHT  = 1011;
+constexpr UINT_PTR ID_VIEW_THEME_CUSTOM = 1012;
+constexpr UINT_PTR ID_VIEW_THEME_ACCENT = 1013;
 // Chat-link decoder popup controls.
 constexpr int ID_CL_INPUT = 2070;
 constexpr UINT_PTR ID_CL_DECODE = 2071;
@@ -162,6 +168,7 @@ struct ExtractResult {
 
 inline HINSTANCE g_hinstance = nullptr;
 inline HMENU g_file_menu = nullptr;
+inline HMENU g_theme_menu = nullptr;  // View > Theme, for the radio mark
 
 struct AppState {
     Gw2Dat data_gw2;
@@ -339,16 +346,6 @@ struct AppState {
 
 inline AppState* g_app = nullptr;
 
-// ---- modern light theme palette -------------------------------------------
-constexpr COLORREF kColBg     = RGB(0xF3, 0xF4, 0xF6); // window background
-constexpr COLORREF kColPanel  = RGB(0xFF, 0xFF, 0xFF); // editors / lists
-constexpr COLORREF kColBand    = RGB(0xE9, 0xEC, 0xF1); // toolbar / status band
-constexpr COLORREF kColText    = RGB(0x22, 0x27, 0x30); // primary text
-constexpr COLORREF kColSubtle  = RGB(0x5A, 0x63, 0x70); // secondary text
-constexpr COLORREF kColAccent  = RGB(0x2D, 0x7F, 0xF9); // accent (blue)
-constexpr COLORREF kColCard    = RGB(0xF7, 0xF9, 0xFC); // overlay readout card
-constexpr COLORREF kColBorder  = RGB(0xD3, 0xD8, 0xDF); // hairline borders
-
 inline HFONT g_ui_font = nullptr;   // Segoe UI, applied to every control
 inline HFONT g_ui_font_bold = nullptr;
 
@@ -356,8 +353,9 @@ inline HFONT g_ui_font_bold = nullptr;
 // Cross-file entry points, grouped by the file that defines them.
 // ---------------------------------------------------------------------------
 
-// ---- theme.cpp -- palettes, fonts and the shared brush cache
-HBRUSH theme_brush(COLORREF c);
+// ---- window_proc.cpp
+/// @brief Put the radio mark on the entry matching g_theme_mode.
+void sync_theme_menu();
 void ensure_ui_fonts();
 BOOL CALLBACK apply_font_cb(HWND child, LPARAM font);
 

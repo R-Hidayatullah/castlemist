@@ -4,6 +4,10 @@
 
 #include "castlemist/ui/texture_panel.h"
 
+// The palette is shared, not copied: a duplicated constant does not follow a
+// theme switch, and this strip stayed light inside a dark window.
+#include "castlemist/ui/theme.h"
+
 #include <windowsx.h>   // GET_Y_LPARAM
 
 #include <algorithm>
@@ -15,21 +19,22 @@
 
 namespace castlemist::texpanel {
 
+// Named individually rather than with a blanket using-directive: these nine are
+// the whole of this widget's dependency on the shell, and listing them keeps it
+// that way.
+using castlemist::ui::kColAccent;
+using castlemist::ui::kColBand;
+using castlemist::ui::kColBorder;
+using castlemist::ui::kColCard;
+using castlemist::ui::kColHover;
+using castlemist::ui::kColPanel;
+using castlemist::ui::kColSubtle;
+using castlemist::ui::kColText;
+using castlemist::ui::theme_brush;
+
 namespace {
 
 constexpr wchar_t kClassName[] = L"Gw2TexturePanel";
-
-// Mirrors the app's light palette (app_state.h). Duplicated rather than included
-// because this module is a self-contained widget like the MFT list and the info
-// panel -- nothing below the shell reaches into the shell's private header.
-constexpr COLORREF kColPanel  = RGB(0xFF, 0xFF, 0xFF);
-constexpr COLORREF kColBand   = RGB(0xE9, 0xEC, 0xF1);
-constexpr COLORREF kColText   = RGB(0x22, 0x27, 0x30);
-constexpr COLORREF kColSubtle = RGB(0x5A, 0x63, 0x70);
-constexpr COLORREF kColAccent = RGB(0x2D, 0x7F, 0xF9);
-constexpr COLORREF kColCard   = RGB(0xF7, 0xF9, 0xFC);
-constexpr COLORREF kColBorder = RGB(0xD3, 0xD8, 0xDF);
-constexpr COLORREF kColHover  = RGB(0xEA, 0xF2, 0xFE);
 
 constexpr int kThumbPx     = 64;   // thumbnail cell edge
 constexpr int kPad         = 8;

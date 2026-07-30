@@ -30,6 +30,11 @@ int run(HINSTANCE hInstance, int cmd_show) {
 
     // Themed common controls and DPI awareness now come from the manifest
     // embedded by src/app/castlemist.rc.in, which applies before this runs.
+
+    // Before any window class is registered: the class background brush is
+    // taken from the palette, so the very first paint is already themed and
+    // the window never flashes light before switching to dark.
+    load_theme_preference();
     ensure_ui_fonts();
 
     INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX),
@@ -91,8 +96,12 @@ int run(HINSTANCE hInstance, int cmd_show) {
     ACCEL accel_entries[] = {{FVIRTKEY, VK_RETURN, static_cast<WORD>(ID_SEARCH_BUTTON)}};
     HACCEL accel_table = CreateAcceleratorTable(accel_entries, 1);
 
+    sync_theme_menu();
+    apply_titlebar_theme(hwnd);
+
     ShowWindow(hwnd, cmd_show);
     UpdateWindow(hwnd);
+    refresh_theme(hwnd); // children exist by now; push the palette into them
 
     // Debug: GW2_SCENE=<mftIndex> builds a synthetic coordinated scene (a grid of
     // that model at varied positions/rotations) to verify the map scene renderer.

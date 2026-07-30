@@ -32,10 +32,57 @@ HMENU build_menu() {
     HMENU tools_menu = CreatePopupMenu();
     AppendMenuW(tools_menu, MF_STRING, ID_TOOLS_DECODE_LINK, L"&Decode Chat Link... ([&...])");
 
+    g_theme_menu = CreatePopupMenu();
+    AppendMenuW(g_theme_menu, MF_STRING, ID_VIEW_THEME_DARK, L"&Dark");
+    AppendMenuW(g_theme_menu, MF_STRING, ID_VIEW_THEME_LIGHT, L"&Light");
+    AppendMenuW(g_theme_menu, MF_STRING, ID_VIEW_THEME_CUSTOM, L"&Custom");
+    AppendMenuW(g_theme_menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(g_theme_menu, MF_STRING, ID_VIEW_THEME_ACCENT, L"Choose &Accent Colour...");
+
+    HMENU view_menu = CreatePopupMenu();
+    AppendMenuW(view_menu, MF_POPUP, reinterpret_cast<UINT_PTR>(g_theme_menu), L"&Theme");
+
     HMENU menu_bar = CreateMenu();
     AppendMenuW(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(g_file_menu), L"&File");
+    AppendMenuW(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(view_menu), L"&View");
     AppendMenuW(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(tools_menu), L"&Tools");
     return menu_bar;
+}
+
+// The radio mark follows g_theme_mode rather than being toggled at the click
+// site, so the menu is still right after load_theme_preference() restores a
+// theme nobody clicked on.
+void sync_theme_menu() {
+    if (g_theme_menu == nullptr) return;
+    CheckMenuRadioItem(g_theme_menu, ID_VIEW_THEME_DARK, ID_VIEW_THEME_CUSTOM,
+                       g_theme_mode == ThemeMode::Light    ? ID_VIEW_THEME_LIGHT
+                       : g_theme_mode == ThemeMode::Custom ? ID_VIEW_THEME_CUSTOM
+                                                           : ID_VIEW_THEME_DARK,
+                       MF_BYCOMMAND);
+}
+
+/// @brief Switch theme, repaint everything and remember the choice.
+static void set_theme(HWND hwnd, ThemeMode mode, COLORREF accent = 0) {
+    apply_theme(mode, accent);
+    sync_theme_menu();
+    refresh_theme(hwnd);
+    save_theme_preference();
+}
+
+/// @brief The standard colour picker, seeded with the current accent.
+static void do_choose_accent(HWND hwnd) {
+    // Custom colours persist for the life of the dialog only; static so a second
+    // visit still shows what was mixed on the first.
+    static COLORREF custom[16] = {0};
+    CHOOSECOLORW cc{};
+    cc.lStructSize = sizeof(cc);
+    cc.hwndOwner = hwnd;
+    cc.rgbResult = g_theme_custom_accent;
+    cc.lpCustColors = custom;
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+    if (ChooseColorW(&cc)) {
+        set_theme(hwnd, ThemeMode::Custom, cc.rgbResult);
+    }
 }
 
 LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -824,6 +871,18 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             return 0;
         case ID_TOOLS_DECODE_LINK:
             open_chat_link_decoder(hwnd);
+            return 0;
+        case ID_VIEW_THEME_DARK:
+            set_theme(hwnd, ThemeMode::Dark);
+            return 0;
+        case ID_VIEW_THEME_LIGHT:
+            set_theme(hwnd, ThemeMode::Light);
+            return 0;
+        case ID_VIEW_THEME_CUSTOM:
+            set_theme(hwnd, ThemeMode::Custom, g_theme_custom_accent);
+            return 0;
+        case ID_VIEW_THEME_ACCENT:
+            do_choose_accent(hwnd);
             return 0;
         case ID_FILE_LOAD_TEMPLATE:
             do_load_template(hwnd);
