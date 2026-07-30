@@ -122,7 +122,10 @@ GameMaterial extract_game_material(Gw2Dat& dat, const nlohmann::json& tpl, const
     try { amat = decompress_by_index(dat, fnBase - 1); } catch (const std::exception&) { return out; }
     if (amat.empty()) return out;
     castlemist::model::AmatSet set;
-    try { set = castlemist::model::Extractor(amat, tpl).extractAmat(); } catch (const std::exception&) { return out; }
+    // m.token is the engine's `materialToken64` -- pass it so effect selection runs
+    // the engine's own token lookup instead of guessing from shader content.
+    try { set = castlemist::model::Extractor(amat, tpl).extractAmat(m.token); }
+    catch (const std::exception&) { return out; }
 
     // Prefer the AMAT's OPAQUE colour effect; the blended one is used only when the
     // AMAT defines no opaque colour effect at all (extractAmat's fallback at the end
