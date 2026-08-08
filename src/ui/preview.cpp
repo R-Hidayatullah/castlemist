@@ -30,6 +30,42 @@ void update_preview_texture() {
     g_app->preview_rotation_quarters = 0;
 }
 
+// Walks current_entry.decompressed against the loaded JSON struct template
+// (castlemist::tpl::get()) and feeds the resulting ParsedNode tree to the
+// "Structure" tab. Mirrors the same tpl-or-nothing pattern build_model_preview
+// and build_map_scene already use: the app works with no template loaded, the
+// tree just explains why it's empty instead of showing one.
+void populate_struct_tree() {
+    if (g_app == nullptr) {
+        return;
+    }
+    if (g_app->current_entry.decompressed.empty()) {
+        castlemist::structtree::clear(g_app->hwnd_struct_tree);
+        return;
+    }
+
+    auto tpl = castlemist::tpl::get();
+    if (!tpl) {
+        castlemist::structtree::set_message(g_app->hwnd_struct_tree,
+            L"No struct template is loaded.\r\n"
+            L"Use File -> Load Struct JSON... (gw2_packfile.json) to enable the parsed structure tree.");
+        return;
+    }
+
+    BinaryParser parser;
+    ParsedNodePtr root;
+    std::string error;
+    bool ok = parser.parse(g_app->current_entry.decompressed, *tpl, root, error);
+    if (!ok || !root) {
+        std::wstring werror(error.begin(), error.end());
+        castlemist::structtree::set_message(g_app->hwnd_struct_tree,
+            L"Could not parse this entry against the loaded template:\r\n" + werror);
+        return;
+    }
+
+    castlemist::structtree::set_tree(g_app->hwnd_struct_tree, root);
+}
+
 // Applies a (freshly extracted or failed) entry to the UI. Called only from
 // the main thread: either synchronously right after a same-thread extract
 // (there isn't one anymore, but kept generic) or from the WM_APP_EXTRACT_DONE
@@ -54,6 +90,7 @@ void apply_extracted_entry(uint32_t mft_index, ExtractedEntry&& entry) {
                       g_app->current_entry.compressed.size());
     castlemist::hex::set_data(g_app->hwnd_hex_after, g_app->current_entry.decompressed.data(),
                       g_app->current_entry.decompressed.size());
+    populate_struct_tree();
 
     // One choke point for the texture panel: every branch below either leaves it
     // empty or refills it, and clearing here also releases the previous model's
@@ -271,6 +308,7 @@ void on_entry_selected(uint32_t mft_index) {
     set_export_enabled(false);
     castlemist::hex::set_data(g_app->hwnd_hex_before, nullptr, 0);
     castlemist::hex::set_data(g_app->hwnd_hex_after, nullptr, 0);
+    castlemist::structtree::clear(g_app->hwnd_struct_tree);
     castlemist::gfx::clear_texture();
     castlemist::render::clear_model();
     castlemist::texpanel::set_model(g_app->hwnd_tex_info, nullptr);

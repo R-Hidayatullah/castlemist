@@ -338,8 +338,10 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             TabCtrl_InsertItem(g_app->hwnd_tab, 0, &item);
             item.pszText = const_cast<wchar_t*>(L"Decompressed");
             TabCtrl_InsertItem(g_app->hwnd_tab, 1, &item);
-            item.pszText = const_cast<wchar_t*>(L"Preview");
+            item.pszText = const_cast<wchar_t*>(L"Structure");
             TabCtrl_InsertItem(g_app->hwnd_tab, 2, &item);
+            item.pszText = const_cast<wchar_t*>(L"Preview");
+            TabCtrl_InsertItem(g_app->hwnd_tab, 3, &item);
             TabCtrl_SetCurSel(g_app->hwnd_tab, static_cast<int>(MiddleTab::Preview));
         }
 
@@ -632,6 +634,11 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
 
         g_app->hwnd_hex_before = castlemist::hex::create(hwnd, g_hinstance, ID_HEX_BEFORE, 0, 0, 0, 0);
         g_app->hwnd_hex_after = castlemist::hex::create(hwnd, g_hinstance, ID_HEX_AFTER, 0, 0, 0, 0);
+
+        // "Structure" tab: JSON-struct-template-driven parsed field tree, right
+        // after the two hex panels -- see struct_tree.h / BinaryParser.
+        g_app->hwnd_struct_tree =
+            castlemist::structtree::create(hwnd, g_hinstance, ID_STRUCT_TREE, 0, 0, 0, 0);
 
         g_app->hwnd_split_middle_info =
             castlemist::ui::create_splitter(hwnd, g_hinstance, ID_SPLIT_MIDDLE_INFO, castlemist::ui::SplitOrientation::Vertical);

@@ -38,6 +38,7 @@ bool load_dat_path(HWND hwnd, const wchar_t* path) {
         castlemist::mft::set_source(g_app->hwnd_list, g_app->data_gw2);
         castlemist::hex::set_data(g_app->hwnd_hex_before, nullptr, 0);
         castlemist::hex::set_data(g_app->hwnd_hex_after, nullptr, 0);
+        castlemist::structtree::clear(g_app->hwnd_struct_tree);
         castlemist::gfx::clear_texture();
         castlemist::render::clear_model();
         castlemist::texpanel::set_model(g_app->hwnd_tex_info, nullptr);
@@ -266,6 +267,13 @@ void do_load_template(HWND hwnd) {
         return;
     }
     SetWindowTextW(g_app->hwnd_status_label, L"Struct template loaded.");
+
+    // The "Structure" tab is a pure function of (current bytes, current
+    // template) -- unlike the model/map surfaces it needs no re-extraction,
+    // just a re-walk against the newly loaded template.
+    if (g_app->dat_loaded && g_app->has_loaded_entry) {
+        populate_struct_tree();
+    }
 
     // If a .modl entry is currently selected but wasn't parsed (no template was
     // loaded when it was extracted), re-extract it now that we have the template.

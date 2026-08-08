@@ -101,12 +101,13 @@ int run(HINSTANCE hInstance, int cmd_show) {
 
     INITCOMMONCONTROLSEX icc{sizeof(INITCOMMONCONTROLSEX),
                              ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES |
-                                 ICC_STANDARD_CLASSES};
+                                 ICC_TREEVIEW_CLASSES | ICC_STANDARD_CLASSES};
     InitCommonControlsEx(&icc);
 
     castlemist::hex::register_class(hInstance);
     castlemist::ui::register_splitter_class(hInstance);
     castlemist::texpanel::register_class(hInstance);
+    castlemist::structtree::register_class(hInstance);
 
     WNDCLASSEXW preview_class{};
     preview_class.cbSize = sizeof(preview_class);

@@ -50,10 +50,14 @@ void layout_children(int client_w, int client_h) {
     const int content_y = kTabHeight;
     const int content_h = std::max(0, usable_h - content_y);
     int sel = TabCtrl_GetCurSel(g_app->hwnd_tab);
-    MiddleTab tab = (sel == 0) ? MiddleTab::Compressed : (sel == 1) ? MiddleTab::Decompressed : MiddleTab::Preview;
+    MiddleTab tab = (sel == 0)   ? MiddleTab::Compressed
+                     : (sel == 1) ? MiddleTab::Decompressed
+                     : (sel == 2) ? MiddleTab::Structure
+                                  : MiddleTab::Preview;
 
     ShowWindow(g_app->hwnd_hex_before, tab == MiddleTab::Compressed ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_hex_after, tab == MiddleTab::Decompressed ? SW_SHOW : SW_HIDE);
+    ShowWindow(g_app->hwnd_struct_tree, tab == MiddleTab::Structure ? SW_SHOW : SW_HIDE);
 
     // The single Preview tab hosts one of three surfaces depending on the
     // selected entry's detected type: image (gw2gfx), model (gw2m3d), or a
@@ -161,6 +165,8 @@ void layout_children(int client_w, int client_h) {
         MoveWindow(g_app->hwnd_hex_before, middle_x, content_y, middle_w, content_h, TRUE);
     } else if (tab == MiddleTab::Decompressed) {
         MoveWindow(g_app->hwnd_hex_after, middle_x, content_y, middle_w, content_h, TRUE);
+    } else if (tab == MiddleTab::Structure) {
+        MoveWindow(g_app->hwnd_struct_tree, middle_x, content_y, middle_w, content_h, TRUE);
     } else {
         constexpr int kButtonW = 70;
         constexpr int kButtonH = 22;

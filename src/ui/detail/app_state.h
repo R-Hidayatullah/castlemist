@@ -31,10 +31,13 @@
 #include "castlemist/media/video_player.h"
 #include "castlemist/render/d3d_renderer.h"
 #include "castlemist/render/model_renderer.h"
+#include "castlemist/format/struct_template.h"
+#include "castlemist/native/BinaryParser.h"
 #include "castlemist/ui/hexview.h"
 #include "castlemist/ui/info_panel.h"
 #include "castlemist/ui/mft_listview.h"
 #include "castlemist/ui/splitter.h"
+#include "castlemist/ui/struct_tree.h"
 #include "castlemist/ui/texture_panel.h"
 
 namespace castlemist::ui {
@@ -78,6 +81,7 @@ constexpr UINT_PTR ID_CL_OPEN_MODEL = 2078;
 constexpr int ID_LISTVIEW = 2001;
 constexpr int ID_HEX_BEFORE = 2002;
 constexpr int ID_HEX_AFTER = 2003;
+constexpr int ID_STRUCT_TREE = 2110; // "Structure" tab: JSON-template-driven parsed field tree
 constexpr int ID_INFO_PANEL = 2004;
 constexpr int ID_TAB = 2005;
 constexpr int ID_SPLIT_LIST_MIDDLE = 2010;
@@ -215,7 +219,7 @@ constexpr UINT WM_APP_INDEX_PROGRESS = WM_APP + 3;
 /// Posted when the build finishes; wparam = 1 on success, 0 on failure/cancel.
 constexpr UINT WM_APP_INDEX_DONE = WM_APP + 4;
 
-enum class MiddleTab { Compressed = 0, Decompressed = 1, Preview = 2 };
+enum class MiddleTab { Compressed = 0, Decompressed = 1, Structure = 2, Preview = 3 };
 
 // Result of a background extract_entry() call, handed back to the UI thread
 // via PostMessageW (WPARAM = generation, LPARAM = heap pointer to this,
@@ -297,6 +301,10 @@ struct AppState {
     double tex_panel_ratio = 0.42;   // fraction of the right column the panel gets
     HWND hwnd_hex_before = nullptr;
     HWND hwnd_hex_after = nullptr;
+    // "Structure" tab: the current entry's decompressed bytes walked against
+    // the loaded JSON struct template and shown as a category tree (chunk ->
+    // fields), immediately after the two hex panels in tab order.
+    HWND hwnd_struct_tree = nullptr;
     HWND hwnd_split_list_middle = nullptr;
     HWND hwnd_split_middle_info = nullptr;
     HWND hwnd_zoom_in = nullptr;
@@ -485,6 +493,7 @@ void content_sort_click(int list, HWND lv, int col);
 
 // ---- preview.cpp -- turning an ExtractedEntry into the visible preview surface
 void update_preview_texture();
+void populate_struct_tree();
 void apply_extracted_entry(uint32_t mft_index, ExtractedEntry&& entry);
 void on_entry_selected(uint32_t mft_index);
 
