@@ -12,6 +12,7 @@
 #include <windowsx.h>
 
 #include "castlemist/format/struct_template.h"
+#include "castlemist/ui/struct_tree.h"
 
 namespace castlemist::ui {
 
@@ -845,6 +846,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         }
         if (header->hwndFrom == g_app->hwnd_tab && header->code == TCN_SELCHANGE) {
             relayout();
+        }
+        if (header->hwndFrom == g_app->hwnd_struct_tree) {
+            return castlemist::structtree::handle_notify(g_app->hwnd_struct_tree, header);
         }
         // cntc content-browser tables (Types / Entries / Assets): selection drives
         // the drill-down; column-header clicks sort. Each carries a backing index
