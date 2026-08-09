@@ -58,6 +58,8 @@ void layout_children(int client_w, int client_h) {
     ShowWindow(g_app->hwnd_hex_before, tab == MiddleTab::Compressed ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_hex_after, tab == MiddleTab::Decompressed ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_struct_tree, tab == MiddleTab::Structure ? SW_SHOW : SW_HIDE);
+    ShowWindow(g_app->hwnd_struct_container_label, tab == MiddleTab::Structure ? SW_SHOW : SW_HIDE);
+    ShowWindow(g_app->hwnd_struct_container_combo, tab == MiddleTab::Structure ? SW_SHOW : SW_HIDE);
     // Lazy struct-tree parse: this is the single choke point that already knows
     // whether the Structure tab just became the active one (covers both the
     // TCN_SELCHANGE click and a resize that leaves it selected), so it's the
@@ -172,7 +174,17 @@ void layout_children(int client_w, int client_h) {
     } else if (tab == MiddleTab::Decompressed) {
         MoveWindow(g_app->hwnd_hex_after, middle_x, content_y, middle_w, content_h, TRUE);
     } else if (tab == MiddleTab::Structure) {
-        MoveWindow(g_app->hwnd_struct_tree, middle_x, content_y, middle_w, content_h, TRUE);
+        // A thin toolbar row above the tree: "Container:" combo lets the
+        // schema group be forced instead of trusting the PF header's own
+        // containerType (see BinaryParser's containerOverride / preview.cpp's
+        // populate_struct_tree).
+        constexpr int kComboRowH = 26;
+        constexpr int kLabelW = 64;
+        MoveWindow(g_app->hwnd_struct_container_label, middle_x + 6, content_y + 5, kLabelW, 18, TRUE);
+        MoveWindow(g_app->hwnd_struct_container_combo, middle_x + 6 + kLabelW + 4, content_y + 2,
+                   std::max(80, middle_w - kLabelW - 16), 260, TRUE);
+        MoveWindow(g_app->hwnd_struct_tree, middle_x, content_y + kComboRowH, middle_w,
+                   std::max(0, content_h - kComboRowH), TRUE);
     } else {
         constexpr int kButtonW = 70;
         constexpr int kButtonH = 22;

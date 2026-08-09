@@ -30,6 +30,62 @@ void update_preview_texture() {
     g_app->preview_rotation_quarters = 0;
 }
 
+// Fills the manual container-override combo from the loaded template's
+// "fileTypes" keys (each a container fourcc with its own strucTab group --
+// see BinaryParser::parseGw2Packfile). Item 0 is always "(auto)"; picking
+// anything else feeds "containerOverride" into the next parse instead of
+// trusting the PF header's own containerType (or, indirectly, whatever the
+// index DB classified this entry as). Preserves the current override if it's
+// still present in the (possibly reloaded) template's list.
+void populate_struct_container_combo() {
+    if (g_app == nullptr || g_app->hwnd_struct_container_combo == nullptr) {
+        return;
+    }
+    HWND combo = g_app->hwnd_struct_container_combo;
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"(auto -- detect from PF header)"));
+
+    auto tpl = castlemist::tpl::get();  // reflect whatever's already loaded; never trigger a load here
+    int select_index = 0;
+    if (tpl && tpl->contains("fileTypes") && (*tpl)["fileTypes"].is_object()) {
+        std::vector<std::string> containers;
+        for (auto it = (*tpl)["fileTypes"].begin(); it != (*tpl)["fileTypes"].end(); ++it) {
+            containers.push_back(it.key());
+        }
+        std::sort(containers.begin(), containers.end());
+        for (size_t i = 0; i < containers.size(); ++i) {
+            std::wstring wname = castlemist::core::from_ascii(containers[i]);
+            SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wname.c_str()));
+            if (containers[i] == g_app->struct_container_override) {
+                select_index = static_cast<int>(i) + 1;  // +1 for the "(auto)" row at index 0
+            }
+        }
+    }
+    SendMessageW(combo, CB_SETCURSEL, select_index, 0);
+    if (select_index == 0) {
+        g_app->struct_container_override.clear();  // stale override (template reloaded without it) -> back to auto
+    }
+}
+
+// The combo's CBN_SELCHANGE handler: stash the picked container (empty for
+// "(auto)") and re-parse right away -- the user is already looking at the
+// Structure tab, that's how a click reached this combo, so there's no need
+// to go through the struct_tree_dirty lazy gate.
+void on_struct_container_changed() {
+    if (g_app == nullptr || g_app->hwnd_struct_container_combo == nullptr) {
+        return;
+    }
+    int sel = static_cast<int>(SendMessageW(g_app->hwnd_struct_container_combo, CB_GETCURSEL, 0, 0));
+    if (sel <= 0) {
+        g_app->struct_container_override.clear();
+    } else {
+        wchar_t buf[64] = L"";
+        SendMessageW(g_app->hwnd_struct_container_combo, CB_GETLBTEXT, sel, reinterpret_cast<LPARAM>(buf));
+        g_app->struct_container_override = castlemist::core::to_ansi(buf);
+    }
+    populate_struct_tree();
+}
+
 // Walks current_entry.decompressed against the loaded JSON struct template
 // and feeds the resulting ParsedNode tree to the "Structure" tab. Mirrors the
 // same tpl-or-nothing pattern build_model_preview and build_map_scene already
@@ -61,10 +117,30 @@ void populate_struct_tree() {
         return;
     }
 
+    // First time a template becomes available, fill the manual override combo
+    // from it (see populate_struct_container_combo). Cheap to check, and keeps
+    // the combo in sync with whatever got auto-loaded/reloaded without wiping
+    // out a selection the user already made on every re-parse.
+    if (g_app->hwnd_struct_container_combo &&
+        SendMessageW(g_app->hwnd_struct_container_combo, CB_GETCOUNT, 0, 0) == 0) {
+        populate_struct_container_combo();
+    }
+
     BinaryParser parser;
     ParsedNodePtr root;
     std::string error;
-    bool ok = parser.parse(g_app->current_entry.decompressed, *tpl, root, error);
+    bool ok;
+    if (g_app->struct_container_override.empty()) {
+        ok = parser.parse(g_app->current_entry.decompressed, *tpl, root, error);
+    } else {
+        // BinaryParser reads "containerOverride" straight off the template JSON
+        // (see the group-resolution in parseGw2Packfile) -- clone rather than
+        // mutate the shared/cached template, which other code (and other
+        // entries with no override) still reads unmodified.
+        nlohmann::json overridden = *tpl;
+        overridden["containerOverride"] = g_app->struct_container_override;
+        ok = parser.parse(g_app->current_entry.decompressed, overridden, root, error);
+    }
     if (!ok || !root) {
         std::wstring werror(error.begin(), error.end());
         castlemist::structtree::set_message(g_app->hwnd_struct_tree,

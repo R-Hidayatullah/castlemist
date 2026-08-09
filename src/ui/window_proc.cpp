@@ -34,6 +34,8 @@ HMENU build_menu() {
 
     HMENU tools_menu = CreatePopupMenu();
     AppendMenuW(tools_menu, MF_STRING, ID_TOOLS_DECODE_LINK, L"&Decode Chat Link... ([&...])");
+    AppendMenuW(tools_menu, MF_STRING, ID_TOOLS_DECODE_TOKEN,
+                L"Decode &Token / Filename Bytes...");
 
     g_theme_menu = CreatePopupMenu();
     AppendMenuW(g_theme_menu, MF_STRING, ID_VIEW_THEME_DARK, L"&Dark");
@@ -638,6 +640,16 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
 
         // "Structure" tab: JSON-struct-template-driven parsed field tree, right
         // after the two hex panels -- see struct_tree.h / BinaryParser.
+        // A small toolbar row above the tree lets the container/chunk-schema be
+        // picked manually instead of trusting the PF header's own containerType
+        // (or the DB's classification) -- useful for testing whether an entry's
+        // reported chunk type is actually the right one to parse it as.
+        g_app->hwnd_struct_container_label =
+            CreateWindowExW(0, L"STATIC", L"Container:", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, hwnd,
+                             nullptr, g_hinstance, nullptr);
+        g_app->hwnd_struct_container_combo = CreateWindowExW(
+            0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_STRUCT_CONTAINER_COMBO)), g_hinstance, nullptr);
         g_app->hwnd_struct_tree =
             castlemist::structtree::create(hwnd, g_hinstance, ID_STRUCT_TREE, 0, 0, 0, 0);
 
@@ -925,6 +937,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         case ID_TOOLS_DECODE_LINK:
             open_chat_link_decoder(hwnd);
             return 0;
+        case ID_TOOLS_DECODE_TOKEN:
+            open_token_decoder(hwnd);
+            return 0;
         case ID_VIEW_THEME_DARK:
             set_theme(hwnd, ThemeMode::Dark);
             return 0;
@@ -1081,6 +1096,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         case ID_FILTER_CONTAINER:
         case ID_FILTER_CONTENT:
             if (HIWORD(wparam) == CBN_SELCHANGE) apply_filters();
+            return 0;
+        case ID_STRUCT_CONTAINER_COMBO:
+            if (HIWORD(wparam) == CBN_SELCHANGE) on_struct_container_changed();
             return 0;
         case ID_ANIM_COMBO:
             if (HIWORD(wparam) == CBN_SELCHANGE) {

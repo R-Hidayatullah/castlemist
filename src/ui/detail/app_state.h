@@ -68,6 +68,7 @@ constexpr UINT_PTR ID_VIEW_THEME_DARK   = 1010;
 constexpr UINT_PTR ID_VIEW_THEME_LIGHT  = 1011;
 constexpr UINT_PTR ID_VIEW_THEME_CUSTOM = 1012;
 constexpr UINT_PTR ID_VIEW_THEME_ACCENT = 1013;
+constexpr UINT_PTR ID_TOOLS_DECODE_TOKEN = 1015;   // token/filename-bytes decoder popup
 // Chat-link decoder popup controls.
 constexpr int ID_CL_INPUT = 2070;
 constexpr UINT_PTR ID_CL_DECODE = 2071;
@@ -82,6 +83,7 @@ constexpr int ID_LISTVIEW = 2001;
 constexpr int ID_HEX_BEFORE = 2002;
 constexpr int ID_HEX_AFTER = 2003;
 constexpr int ID_STRUCT_TREE = 2110; // "Structure" tab: JSON-template-driven parsed field tree
+constexpr int ID_STRUCT_CONTAINER_COMBO = 2130; // manual container/chunk-schema override for the tree above
 constexpr int ID_INFO_PANEL = 2004;
 constexpr int ID_TAB = 2005;
 constexpr int ID_SPLIT_LIST_MIDDLE = 2010;
@@ -188,6 +190,16 @@ constexpr UINT_PTR ID_GIZMO_RESET = 2087;
 constexpr UINT_PTR ID_TEX_PANEL = 2103;     // single-model: "Textures" toggle for the panel below
 constexpr int ID_TEX_INFO = 2104;           // the per-submesh texture panel itself (bottom right)
 constexpr int ID_SPLIT_INFO_TEX = 2105;     // horizontal: info panel | texture panel
+// Token / filename-bytes decoder popup controls.
+constexpr int ID_TD_SHADER_IN = 2120;       // shader/material token32 (hex) input
+constexpr UINT_PTR ID_TD_SHADER_DECODE = 2121;  // token32 -> name
+constexpr UINT_PTR ID_TD_SHADER_ENCODE = 2122;  // name -> token32
+constexpr int ID_TD_BONE_IN = 2123;         // bone name input
+constexpr UINT_PTR ID_TD_BONE_ENCODE = 2124;    // name -> token64
+constexpr int ID_TD_FID_IN = 2125;          // filename-record hex bytes input
+constexpr UINT_PTR ID_TD_FID_DECODE = 2126;     // bytes -> fileId/subId
+constexpr int ID_TD_OUTPUT = 2127;          // shared read-only log
+constexpr UINT_PTR ID_TD_CLOSE = 2128;
 constexpr UINT_PTR ID_MAP_PREVIEW = 2088;   // map: toggle the picked-prop inset preview
 constexpr UINT_PTR ID_CLOTH_TOGGLE = 2089;  // single-model: live cloth simulation on/off
 constexpr UINT_PTR ID_AUDIO_SEEK = 2092;    // audio playback position / seek trackbar
@@ -305,6 +317,19 @@ struct AppState {
     // the loaded JSON struct template and shown as a category tree (chunk ->
     // fields), immediately after the two hex panels in tab order.
     HWND hwnd_struct_tree = nullptr;
+    // Manual override for which file-type container schema the Structure tab
+    // parses the current entry's chunks against (BinaryParser's
+    // "containerOverride" -- see gwStruct routing in BinaryParser.cpp). Normally
+    // empty, meaning auto-detect from the PF header's containerType fourcc; set
+    // from hwnd_struct_container_combo so a different container's strucTabs can
+    // be tried against an entry whose DB-reported type/container turns out to be
+    // wrong (or absent, for a loose file) -- lets you tell whether a given chunk
+    // schema is actually the right one for these bytes rather than just guessing.
+    // Persists across entry selection so the same override can be tried against
+    // several entries in a row.
+    std::string struct_container_override;
+    HWND hwnd_struct_container_label = nullptr;
+    HWND hwnd_struct_container_combo = nullptr;
     // True when the struct tree is stale for the currently selected entry --
     // set whenever a new entry is selected, cleared once populate_struct_tree()
     // actually runs. Keeps the Structure tab lazy: the struct-template JSON and
@@ -525,6 +550,8 @@ bool load_index_path(HWND hwnd, const wchar_t* path);
 void on_index_build_done(HWND hwnd, bool ok);
 void do_search();
 void do_clear_search();
+void populate_struct_container_combo();  // preview.cpp -- fills the override combo from the loaded template
+void on_struct_container_changed();       // preview.cpp -- combo selection -> re-parse with the override
 
 // ---- chat_link_dialog.cpp -- the &[base64] chat-link decoder popup
 void cl_do_decode();
@@ -536,6 +563,10 @@ void cl_resolve_asset();
 void cl_search(bool by_file_id);
 LRESULT CALLBACK ChatLinkWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 void open_chat_link_decoder(HWND owner);
+
+// ---- token_decoder_dialog.cpp -- token / filename-bytes decoder popup
+LRESULT CALLBACK TokenDecoderWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+void open_token_decoder(HWND owner);
 
 // ---- index_ui.cpp -- opening a gw2index SQLite and wiring its filters
 void finish_open_index(HWND hwnd, bool silent);

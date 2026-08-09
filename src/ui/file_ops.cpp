@@ -268,6 +268,7 @@ void do_load_template(HWND hwnd) {
         return;
     }
     SetWindowTextW(g_app->hwnd_status_label, L"Struct template loaded.");
+    populate_struct_container_combo();  // fileTypes list may have changed with the new template
 
     // The "Structure" tab is a pure function of (current bytes, current
     // template) -- unlike the model/map surfaces it needs no re-extraction,
