@@ -143,6 +143,23 @@ ExtractedEntry extract_entry(Gw2Dat& data_gw2, uint32_t mft_index);
 /// @param entry     A copy of the MFT record to extract.
 ExtractedEntry extract_entry(const std::string& file_path, const MftData& entry);
 
+/// @brief Background-thread-safe overload that also enables DB-first type routing.
+///
+/// Identical to extract_entry(const std::string&, const MftData&) except it
+/// additionally passes the entry's MFT index so the dispatcher can look up
+/// its pre-computed type/container/chunks in the open gw2index DB
+/// (base_id == mft_index + 1) and route straight to the correct
+/// builder (model/map/content/strs/...) instead of re-sniffing the bytes.
+/// Falls back to the same sniffing extract_entry() always does whenever no
+/// index DB is open or it has no row for this id -- the result is identical
+/// to the non-indexed overload in that case, just possibly slower to get
+/// there. This is the overload the entry-list click handler uses.
+///
+/// @param file_path Path to the .dat.
+/// @param entry     A copy of the MFT record to extract.
+/// @param mft_index Zero-based MFT index (the UI's row number).
+ExtractedEntry extract_entry_indexed(const std::string& file_path, const MftData& entry, uint32_t mft_index);
+
 /// @brief Identify and preview a file that is not inside a .dat.
 ///
 /// Runs the same format detection as an archive entry, so anything the browser

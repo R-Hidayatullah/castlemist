@@ -39,6 +39,7 @@ bool load_dat_path(HWND hwnd, const wchar_t* path) {
         castlemist::hex::set_data(g_app->hwnd_hex_before, nullptr, 0);
         castlemist::hex::set_data(g_app->hwnd_hex_after, nullptr, 0);
         castlemist::structtree::clear(g_app->hwnd_struct_tree);
+        g_app->struct_tree_dirty = false; // fresh archive, nothing selected yet to lazily repopulate
         castlemist::gfx::clear_texture();
         castlemist::render::clear_model();
         castlemist::texpanel::set_model(g_app->hwnd_tex_info, nullptr);

@@ -13,6 +13,11 @@ namespace {
 std::mutex g_mutex;
 std::shared_ptr<const nlohmann::json> g_template;
 std::string g_source_path;
+// Set once auto_load() has been attempted (success or failure) so
+// get_or_auto_load() only ever tries the disk scan once per process, instead
+// of re-stat'ing every candidate path on every entry click when no template
+// exists to find.
+bool g_auto_load_attempted = false;
 
 // Directory the running .exe lives in (with trailing backslash), for locating a
 // bundled templates/ folder regardless of the process working directory.
@@ -57,6 +62,7 @@ bool load_from_file(const std::string& path, std::string& error) {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_template = parsed;
         g_source_path = path;
+        g_auto_load_attempted = true; // an explicit/successful load also satisfies auto_load's job
         return true;
     } catch (const std::exception& e) {
         error = std::string("Parse error: ") + e.what();
@@ -85,7 +91,31 @@ bool auto_load() {
             return true;
         }
     }
+    // Nothing found: remember that we tried, so get_or_auto_load() doesn't
+    // re-stat every candidate path again on the next entry click.
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_auto_load_attempted = true;
     return false;
+}
+
+std::shared_ptr<const nlohmann::json> get_or_auto_load() {
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_template) {
+            return g_template;
+        }
+        if (g_auto_load_attempted) {
+            // Already looked for it once (found nothing) and no explicit
+            // File -> Load Struct JSON... has happened since -- don't keep
+            // re-parsing/re-stat'ing on every click of an entry or tab.
+            return nullptr;
+        }
+    }
+    // First real need for the template in this process: do the (possibly
+    // multi-megabyte) parse now, on whichever thread asked for it, instead of
+    // blocking window creation before any file was ever opened.
+    auto_load();
+    return get();
 }
 
 } // namespace castlemist::tpl

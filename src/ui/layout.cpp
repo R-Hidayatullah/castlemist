@@ -58,6 +58,12 @@ void layout_children(int client_w, int client_h) {
     ShowWindow(g_app->hwnd_hex_before, tab == MiddleTab::Compressed ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_hex_after, tab == MiddleTab::Decompressed ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_struct_tree, tab == MiddleTab::Structure ? SW_SHOW : SW_HIDE);
+    // Lazy struct-tree parse: this is the single choke point that already knows
+    // whether the Structure tab just became the active one (covers both the
+    // TCN_SELCHANGE click and a resize that leaves it selected), so it's the
+    // right place to trigger the deferred template load + binary walk. A no-op
+    // when the tree isn't stale or Structure isn't showing.
+    populate_struct_tree_if_visible();
 
     // The single Preview tab hosts one of three surfaces depending on the
     // selected entry's detected type: image (gw2gfx), model (gw2m3d), or a

@@ -294,7 +294,17 @@ bool peek_is_bink_fileid(Gw2Dat& dat, uint32_t file_id);
 /// @param already_plain    True when `raw_bytes` is a finished file rather than an
 ///                         MFT entry, so the CRC32C strip and Method0 inflate are
 ///                         skipped. Format detection is identical either way.
+/// @param base_id          The entry's gw2index base id (mft_index + 1), or 0 if
+///                         unknown/not applicable (e.g. a loose file off disk).
+///                         When an index DB is open and has a row for this id,
+///                         its pre-computed type/container/chunk list is trusted
+///                         to route detection (PreviewKind + which chunk-driven
+///                         builder to run) instead of re-deriving it from the
+///                         magic/chunk sniffers below. The sniffers still run
+///                         as the fallback whenever the id is 0, the DB isn't
+///                         open, or it has no row for this id.
 ExtractedEntry decompress_raw_entry(std::vector<uint8_t> raw_bytes, uint16_t compression_flag,
-                                    const std::string& dat_path, bool already_plain = false);
+                                    const std::string& dat_path, bool already_plain = false,
+                                    uint32_t base_id = 0);
 
 } // namespace castlemist::extract

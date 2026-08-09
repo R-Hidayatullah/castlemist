@@ -31,20 +31,29 @@ void update_preview_texture() {
 }
 
 // Walks current_entry.decompressed against the loaded JSON struct template
-// (castlemist::tpl::get()) and feeds the resulting ParsedNode tree to the
-// "Structure" tab. Mirrors the same tpl-or-nothing pattern build_model_preview
-// and build_map_scene already use: the app works with no template loaded, the
-// tree just explains why it's empty instead of showing one.
+// and feeds the resulting ParsedNode tree to the "Structure" tab. Mirrors the
+// same tpl-or-nothing pattern build_model_preview and build_map_scene already
+// use: the app works with no template loaded, the tree just explains why it's
+// empty instead of showing one.
+//
+// This does real work -- the struct template can be a multi-megabyte JSON
+// file, and the binary walk itself isn't free either -- so it is deliberately
+// NOT called unconditionally from apply_extracted_entry() any more. Only
+// populate_struct_tree_if_visible() calls it, and only when the Structure tab
+// is actually the one on screen; see that function and its callers
+// (relayout()'s TCN_SELCHANGE path, and here once per fresh selection).
 void populate_struct_tree() {
     if (g_app == nullptr) {
         return;
     }
+    g_app->struct_tree_dirty = false;
     if (g_app->current_entry.decompressed.empty()) {
         castlemist::structtree::clear(g_app->hwnd_struct_tree);
         return;
     }
 
-    auto tpl = castlemist::tpl::get();
+    // Lazy: parses gw2_packfile.json on this first real need, not at startup.
+    auto tpl = castlemist::tpl::get_or_auto_load();
     if (!tpl) {
         castlemist::structtree::set_message(g_app->hwnd_struct_tree,
             L"No struct template is loaded.\r\n"
@@ -64,6 +73,20 @@ void populate_struct_tree() {
     }
 
     castlemist::structtree::set_tree(g_app->hwnd_struct_tree, root);
+}
+
+void populate_struct_tree_if_visible() {
+    if (g_app == nullptr || g_app->hwnd_tab == nullptr || g_app->hwnd_struct_tree == nullptr) {
+        return;
+    }
+    if (!g_app->struct_tree_dirty) {
+        return; // already up to date for the current entry -- nothing to do
+    }
+    int sel = TabCtrl_GetCurSel(g_app->hwnd_tab);
+    if (sel != static_cast<int>(MiddleTab::Structure)) {
+        return; // Structure tab isn't showing -- defer the parse until it is
+    }
+    populate_struct_tree();
 }
 
 // Applies a (freshly extracted or failed) entry to the UI. Called only from
@@ -90,7 +113,13 @@ void apply_extracted_entry(uint32_t mft_index, ExtractedEntry&& entry) {
                       g_app->current_entry.compressed.size());
     castlemist::hex::set_data(g_app->hwnd_hex_after, g_app->current_entry.decompressed.data(),
                       g_app->current_entry.decompressed.size());
-    populate_struct_tree();
+    // Lazy: mark the struct tree stale for this entry, but only actually parse
+    // it (template load + binary walk) if the Structure tab happens to be the
+    // one showing right now. If the user is looking at another tab, the parse
+    // is deferred until they click into Structure -- see TCN_SELCHANGE in
+    // window_proc.cpp / relayout().
+    g_app->struct_tree_dirty = true;
+    populate_struct_tree_if_visible();
 
     // One choke point for the texture panel: every branch below either leaves it
     // empty or refills it, and clearing here also releases the previous model's
@@ -309,6 +338,7 @@ void on_entry_selected(uint32_t mft_index) {
     castlemist::hex::set_data(g_app->hwnd_hex_before, nullptr, 0);
     castlemist::hex::set_data(g_app->hwnd_hex_after, nullptr, 0);
     castlemist::structtree::clear(g_app->hwnd_struct_tree);
+    g_app->struct_tree_dirty = false; // just cleared it -- nothing stale to lazily repopulate yet
     castlemist::gfx::clear_texture();
     castlemist::render::clear_model();
     castlemist::texpanel::set_model(g_app->hwnd_tex_info, nullptr);
@@ -330,7 +360,10 @@ void on_entry_selected(uint32_t mft_index) {
         result->generation = generation;
         result->mft_index = mft_index;
         try {
-            result->entry = extract_entry(file_path, entry_copy);
+            // Indexed overload: lets decompress_raw_entry() consult the
+            // gw2index DB (base_id = mft_index + 1) for this entry's real
+            // type/container/chunks before falling back to byte-sniffing.
+            result->entry = extract_entry_indexed(file_path, entry_copy, mft_index);
             result->success = true;
         } catch (const std::exception& e) {
             result->success = false;

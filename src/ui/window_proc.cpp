@@ -691,9 +691,13 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             MessageBoxW(hwnd, L"Failed to initialize Direct3D 11 for the model viewer. 3D preview will be unavailable.",
                         L"castlemist", MB_ICONWARNING);
         }
-        // Best-effort: find gw2_packfile.json next to the exe / templates dir so
-        // model preview works out of the box (File -> Load Struct JSON overrides).
-        castlemist::tpl::auto_load();
+        // The struct template (gw2_packfile.json) is no longer auto-loaded here:
+        // it's a multi-megabyte JSON parse that used to run synchronously on
+        // every startup whether or not the user ever opens the Structure tab or
+        // a model/map entry. It's now loaded lazily, on the first entry/panel
+        // that actually needs it, via castlemist::tpl::get_or_auto_load() --
+        // see populate_struct_tree() and entry_extractor.cpp. File -> Load
+        // Struct JSON... (do_load_template) still loads it eagerly on demand.
         try_autoload_keys();
         // NB: the gw2_index.db auto-load runs from WinMain after the window is shown
         // (not here) -- it loads the .dat MFT synchronously and must not run inside

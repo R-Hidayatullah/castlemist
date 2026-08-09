@@ -19,6 +19,7 @@
 
 #include "castlemist/core/packfile.h"
 #include "castlemist/core/text.h"
+#include "castlemist/db/index_db.h"
 #include "castlemist/format/sdk_image.h"
 #include "castlemist/format/strs_keys.h"
 #include "castlemist/format/strs_view.h"
@@ -32,7 +33,7 @@ namespace castlemist::extract {
 // `raw_bytes` was read off disk -- this is what makes it safe to run on a
 // background thread. `dat_path` is used to resolve model textures.
 ExtractedEntry decompress_raw_entry(std::vector<uint8_t> raw_bytes, uint16_t compression_flag,
-                                    const std::string& dat_path, bool already_plain) {
+                                    const std::string& dat_path, bool already_plain, uint32_t base_id) {
     ExtractedEntry result;
     result.compressed = raw_bytes;
 
@@ -57,6 +58,107 @@ ExtractedEntry decompress_raw_entry(std::vector<uint8_t> raw_bytes, uint16_t com
     }
 
     result.decompressed = std::move(file_bytes);
+
+    // ---- DB-first type routing -------------------------------------------
+    //
+    // When a gw2index DB is open and has a row for this entry, its `type` /
+    // `container` / `chunks` were already computed once by index_builder.cpp
+    // against the *actual* decompressed bytes (see classify()/parse_chunks()
+    // there) and are authoritative -- they don't need to be re-derived by
+    // re-sniffing magic numbers and re-walking the chunk table here. Using
+    // them lets us route straight to the correct builder (model vs map vs
+    // texture vs ...) instead of relying on the same heuristics the sniffers
+    // below use, which is what "correct struct from db before fallback"
+    // means: DB truth first, magic/chunk sniffing only as the fallback when
+    // no index is open or it has nothing for this id.
+    //
+    // This only decides *routing* (which PreviewKind/builder to use); the
+    // actual bytes parsed are always result.decompressed, so the builders
+    // themselves stay unchanged and a mis-indexed row can never corrupt what
+    // gets shown -- worst case it falls through to the sniffers exactly as
+    // before.
+    if (base_id != 0 && castlemist::db::is_open()) {
+        castlemist::db::EntryInfo ie = castlemist::db::lookup(base_id);
+        if (ie.found && ie.error.empty()) {
+            if (ie.type == "packfile") {
+                // container fourcc distinguishes MODL / mapc / area / cntc / txt* /
+                // etc; chunks additionally tell us e.g. whether a MODL actually
+                // carries GEOM (some are animation-only and have no mesh).
+                auto db_has_chunk = [&](const char* fourcc) {
+                    size_t n = std::strlen(fourcc);
+                    for (const std::string& c : ie.chunks) {
+                        if (c.size() >= n && c.compare(0, n, fourcc) == 0) return true;
+                    }
+                    return false;
+                };
+
+                if (db_has_chunk("prp2")) {
+                    result.kind = PreviewKind::Map;
+                    auto tpl = castlemist::tpl::get_or_auto_load();
+                    if (tpl && !dat_path.empty()) {
+                        result.map = build_map_scene(result.decompressed, dat_path, *tpl);
+                    }
+                    return result;
+                }
+                if (db_has_chunk("GEOM")) {
+                    result.kind = PreviewKind::Model;
+                    auto tpl = castlemist::tpl::get_or_auto_load();
+                    if (tpl && !dat_path.empty()) {
+                        result.model = build_model_preview(result.decompressed, dat_path, *tpl, /*want_game=*/true);
+                    }
+                    return result;
+                }
+                if (db_has_chunk("CSCN") && castlemist::core::is_packfile(result.decompressed, "CINP")) {
+                    // Fall through to the sniffers below: the CINP path also reads
+                    // referenced Bink fileIds and subtitles, logic that only lives
+                    // there today. DB routing here would just duplicate it.
+                } else if (ie.container == "cntc") {
+                    std::wstring summary = parse_cntc_summary(result.decompressed);
+                    if (!summary.empty()) {
+                        result.content_asset_ids = cntc_referenced_asset_ids(result.decompressed, 100000);
+                        result.content_objects = parse_cntc_objects(result.decompressed, 100000);
+                        summary += L"\r\nReferences ";
+                        summary += std::to_wstring(result.content_asset_ids.size());
+                        summary += L" external asset fileIds across ";
+                        summary += std::to_wstring(result.content_objects.size());
+                        summary += L" content objects (item/skin/outfit/...).\r\n"
+                                   L"Pick an object (master) -> its assets (child) -> preview (detail).\r\n\r\n"
+                                   L"Content names/descriptions are stored as textIds, resolved through the\r\n"
+                                   L"text-pack family: txtm (manifest: textId -> strs file+slot), txtv (voices:\r\n"
+                                   L"textId -> voice audio), txtV (variants: textId -> gender/variant lines).";
+                        result.kind = result.content_objects.empty() ? PreviewKind::Text : PreviewKind::Content;
+                        result.text_preview = std::move(summary);
+                        return result;
+                    }
+                    // container said cntc but parsing it yielded nothing usable --
+                    // fall through to the generic sniffers rather than guessing.
+                }
+                // Other packfile containers (eula/ABIX/CSCN/txtm/txtv/txtV/plain
+                // text-bearing PF blobs, or a container we don't special-case) are
+                // still routed by the sniffers below, which already know exactly
+                // how to decode each of those -- DB only tells us "it's a
+                // packfile", the sniffers still supply the format-specific logic.
+            } else if (ie.type == "texture" || ie.type == "dds" || ie.type == "png" || ie.type == "jpeg" ||
+                       ie.type == "riff") {
+                // Image family: still runs through fill_preview_from_atex / dds /
+                // the reference image codecs below, since those are what actually
+                // decode pixels -- the DB only confirms *that* this is an image,
+                // sparing us the container/text/audio branches entirely for what
+                // would otherwise be several failed sniff attempts first.
+            } else if (ie.type == "strs") {
+                result.kind = PreviewKind::Strs;
+                result.text_preview = castlemist::strs::decode(result.decompressed.data(), result.decompressed.size());
+                return result;
+            } else if (ie.type == "asnd") {
+                // Falls through to the audio sniffer below, which distinguishes
+                // AMSP sound-pool banks (external samples) from embedded clips --
+                // logic worth keeping in one place rather than duplicating here.
+            }
+            // ie.type == "binary" / "exe" / "empty" / anything else: no faster
+            // route than the fallback below, so just let it run.
+        }
+    }
+    // ---- End DB-first routing; sniffers below are the fallback -----------
 
     // Bink cinematic ("KB2i"/"KB2j" in this dat). Checked first: the magic is
     // unambiguous, and these entries are ~100 MB, so there is no point running
@@ -233,7 +335,7 @@ ExtractedEntry decompress_raw_entry(std::vector<uint8_t> raw_bytes, uint16_t com
     // before GEOM since a map has prp2 but no GEOM of its own.
     if (castlemist::core::has_chunk(result.decompressed, "prp2")) {
         result.kind = PreviewKind::Map;
-        auto tpl = castlemist::tpl::get();
+        auto tpl = castlemist::tpl::get_or_auto_load();
         if (tpl && !dat_path.empty()) {
             result.map = build_map_scene(result.decompressed, dat_path, *tpl);
         }
@@ -243,7 +345,7 @@ ExtractedEntry decompress_raw_entry(std::vector<uint8_t> raw_bytes, uint16_t com
     // PF packfile with geometry -> model (parsed only if a template is loaded).
     if (castlemist::core::has_chunk(result.decompressed, "GEOM")) {
         result.kind = PreviewKind::Model;
-        auto tpl = castlemist::tpl::get();
+        auto tpl = castlemist::tpl::get_or_auto_load();
         if (tpl && !dat_path.empty()) {
             // want_game=true: also extract the real game (bgfx DXBC) shaders per
             // material for the "Shader" render mode (single-model path only).
@@ -271,13 +373,27 @@ using namespace castlemist::extract;
 
 ExtractedEntry extract_entry(Gw2Dat& data_gw2, uint32_t mft_index) {
     std::vector<uint8_t> raw = extract_compressed_data(data_gw2, mft_index);
+    // base_id = mft_index + 1 is the established convention this app uses
+    // everywhere else to key the gw2index DB (see info_panel.cpp's lookup for
+    // the "Index (gw2index DB)" panel section).
     return decompress_raw_entry(std::move(raw), data_gw2.mft_data_list[mft_index].compression_flag,
-                                data_gw2.file_info.file_path);
+                                data_gw2.file_info.file_path, /*already_plain=*/false, mft_index + 1);
 }
 
 ExtractedEntry extract_entry(const std::string& file_path, const MftData& entry) {
     std::vector<uint8_t> raw = read_entry_bytes(file_path, entry);
+    // No mft_index is available on this overload's signature -- the caller
+    // (preview.cpp's background-extract thread) knows it but doesn't thread it
+    // through MftData itself, so this path can't offer the DB-first lookup and
+    // always uses the sniffer fallback. See the Gw2Dat& overload above, and
+    // extract_entry_indexed() below, for the DB-aware path.
     return decompress_raw_entry(std::move(raw), entry.compression_flag, file_path);
+}
+
+ExtractedEntry extract_entry_indexed(const std::string& file_path, const MftData& entry, uint32_t mft_index) {
+    std::vector<uint8_t> raw = read_entry_bytes(file_path, entry);
+    return decompress_raw_entry(std::move(raw), entry.compression_flag, file_path, /*already_plain=*/false,
+                                mft_index + 1);
 }
 
 ExtractedEntry extract_loose_file(std::vector<uint8_t> bytes, const std::string& source_path) {

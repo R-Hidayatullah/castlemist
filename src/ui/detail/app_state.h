@@ -305,6 +305,13 @@ struct AppState {
     // the loaded JSON struct template and shown as a category tree (chunk ->
     // fields), immediately after the two hex panels in tab order.
     HWND hwnd_struct_tree = nullptr;
+    // True when the struct tree is stale for the currently selected entry --
+    // set whenever a new entry is selected, cleared once populate_struct_tree()
+    // actually runs. Keeps the Structure tab lazy: the struct-template JSON and
+    // the per-entry binary walk only happen the first time the tab is actually
+    // shown for a given entry, not on every entry click regardless of which
+    // tab the user is looking at.
+    bool struct_tree_dirty = false;
     HWND hwnd_split_list_middle = nullptr;
     HWND hwnd_split_middle_info = nullptr;
     HWND hwnd_zoom_in = nullptr;
@@ -494,6 +501,11 @@ void content_sort_click(int list, HWND lv, int col);
 // ---- preview.cpp -- turning an ExtractedEntry into the visible preview surface
 void update_preview_texture();
 void populate_struct_tree();
+// Runs populate_struct_tree() only if the Structure tab is the one currently
+// showing and its content is stale (g_app->struct_tree_dirty); a no-op
+// otherwise, cheap enough to call from relayout()/TCN_SELCHANGE on every tab
+// click without re-parsing anything for tabs the user isn't looking at.
+void populate_struct_tree_if_visible();
 void apply_extracted_entry(uint32_t mft_index, ExtractedEntry&& entry);
 void on_entry_selected(uint32_t mft_index);
 

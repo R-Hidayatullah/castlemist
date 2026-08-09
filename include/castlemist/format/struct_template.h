@@ -13,8 +13,19 @@
 /// shared_ptr snapshot so a reload never invalidates an in-flight read.
 namespace castlemist::tpl {
 
-/// Returns the current template (nullptr if none loaded yet).
+/// Returns the current template (nullptr if none loaded yet). Never triggers
+/// a load -- use this where the caller only wants to know what's already
+/// resident (e.g. status/info text), not to pay for a parse.
 std::shared_ptr<const nlohmann::json> get();
+
+/// Returns the current template, auto-loading it from the conventional
+/// on-disk locations on first call if nothing is loaded yet (see auto_load()).
+/// This is the lazy entry point: the multi-megabyte gw2_packfile.json is only
+/// ever parsed the first time something actually needs it -- opening the
+/// Structure tab, or extracting an entry that turns out to be a model/map --
+/// instead of unconditionally at startup. Safe to call from a worker thread;
+/// the load itself is still serialized by the same mutex as load_from_file().
+std::shared_ptr<const nlohmann::json> get_or_auto_load();
 
 /// Where the active template was loaded from, or empty if none is loaded. The
 /// index builder needs the path rather than the parsed JSON, because it runs the

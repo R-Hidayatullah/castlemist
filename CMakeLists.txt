@@ -90,8 +90,11 @@ castlemist_add_layer(media  DEPS castlemist::core castlemist::native
                                  ext::drlibs ext::stb ext::bink2
                                  winmm version)
 
+# extract now also consults the gw2index DB (castlemist::db::lookup) to route
+# entry detection off its pre-computed type/container/chunks before falling
+# back to magic/chunk sniffing -- see entry_extractor.cpp's DB-first routing.
 castlemist_add_layer(extract DEPS castlemist::format castlemist::media
-                                  castlemist::native)
+                                  castlemist::native castlemist::db)
 
 # sim sits beside render rather than under it, but it does need extract's mesh
 # types: the solver is fed a ModelMeshCPU straight out of model extraction.
