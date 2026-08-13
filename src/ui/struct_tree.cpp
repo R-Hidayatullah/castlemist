@@ -295,4 +295,47 @@ void clear(HWND hwnd) {
     s_roots[hwnd] = nullptr;
 }
 
+bool select_chunk_by_offset(HWND hwnd, size_t chunk_offset) {
+    if (hwnd == nullptr) {
+        return false;
+    }
+    auto it = s_roots.find(hwnd);
+    if (it == s_roots.end() || !it->second) {
+        return false;
+    }
+
+    // The tree's single top-level TVI_ROOT item is the PackFile root node
+    // itself (see set_tree); the chunk/header entries we're matching against
+    // are its real, already-materialized children (inserted eagerly by
+    // set_tree's insert_one_level call), so a plain sibling walk finds them
+    // without needing to expand anything first.
+    HTREEITEM top = TreeView_GetRoot(hwnd);
+    if (top == nullptr) {
+        return false;
+    }
+
+    HTREEITEM item = TreeView_GetChild(hwnd, top);
+    while (item != nullptr) {
+        TVITEMW tvi{};
+        tvi.mask = TVIF_PARAM;
+        tvi.hItem = item;
+        if (TreeView_GetItem(hwnd, &tvi) && tvi.lParam != kPlaceholderParam) {
+            const auto* node = reinterpret_cast<const ParsedNode*>(tvi.lParam);
+            if (node != nullptr && node->offset == chunk_offset) {
+                // Materialize this node's own children (if any) the same way
+                // a manual expand-click would, so landing on a chunk from the
+                // combo shows its fields immediately instead of a bare row.
+                expand_node(hwnd, item);
+                TreeView_Expand(hwnd, item, TVE_EXPAND);
+                TreeView_SelectItem(hwnd, item);
+                TreeView_EnsureVisible(hwnd, item);
+                SetFocus(hwnd);
+                return true;
+            }
+        }
+        item = TreeView_GetNextSibling(hwnd, item);
+    }
+    return false;
+}
+
 } // namespace castlemist::structtree

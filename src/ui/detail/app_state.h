@@ -317,17 +317,20 @@ struct AppState {
     // the loaded JSON struct template and shown as a category tree (chunk ->
     // fields), immediately after the two hex panels in tab order.
     HWND hwnd_struct_tree = nullptr;
-    // Manual override for which file-type container schema the Structure tab
-    // parses the current entry's chunks against (BinaryParser's
-    // "containerOverride" -- see gwStruct routing in BinaryParser.cpp). Normally
-    // empty, meaning auto-detect from the PF header's containerType fourcc; set
-    // from hwnd_struct_container_combo so a different container's strucTabs can
-    // be tried against an entry whose DB-reported type/container turns out to be
-    // wrong (or absent, for a loose file) -- lets you tell whether a given chunk
-    // schema is actually the right one for these bytes rather than just guessing.
-    // Persists across entry selection so the same override can be tried against
-    // several entries in a row.
-    std::string struct_container_override;
+    // "Container:" combo above the Structure tree is a navigator, not a type
+    // filter: it lists every top-level entry actually present in the CURRENT
+    // entry's own parsed packfile (the PF header row, plus one row per real
+    // chunk -- fourcc, version, and its resolved schema name -- see
+    // populate_struct_container_combo()), sourced straight from the last
+    // ParsedNode tree BinaryParser produced for these bytes. Picking one jumps
+    // the tree view to that node (struct_tree::select_chunk_by_offset) instead
+    // of reparsing anything, since the tree already holds every chunk this
+    // file actually has. Item 0 is always "(select a chunk)".
+    // struct_root keeps that last-parsed tree alive so the combo can be
+    // rebuilt (e.g. after switching entries) without re-running BinaryParser;
+    // it mirrors what struct_tree.cpp itself is already holding onto for the
+    // visible tree, just reachable from app state too.
+    ParsedNodePtr struct_root;
     HWND hwnd_struct_container_label = nullptr;
     HWND hwnd_struct_container_combo = nullptr;
     // True when the struct tree is stale for the currently selected entry --
@@ -550,8 +553,8 @@ bool load_index_path(HWND hwnd, const wchar_t* path);
 void on_index_build_done(HWND hwnd, bool ok);
 void do_search();
 void do_clear_search();
-void populate_struct_container_combo();  // preview.cpp -- fills the override combo from the loaded template
-void on_struct_container_changed();       // preview.cpp -- combo selection -> re-parse with the override
+void populate_struct_container_combo();  // preview.cpp -- lists this entry's own chunks (id + name), from the parsed tree
+void on_struct_container_changed();       // preview.cpp -- combo selection -> jump the tree to that chunk
 
 // ---- chat_link_dialog.cpp -- the &[base64] chat-link decoder popup
 void cl_do_decode();

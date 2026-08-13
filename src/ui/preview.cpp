@@ -30,60 +30,70 @@ void update_preview_texture() {
     g_app->preview_rotation_quarters = 0;
 }
 
-// Fills the manual container-override combo from the loaded template's
-// "fileTypes" keys (each a container fourcc with its own strucTab group --
-// see BinaryParser::parseGw2Packfile). Item 0 is always "(auto)"; picking
-// anything else feeds "containerOverride" into the next parse instead of
-// trusting the PF header's own containerType (or, indirectly, whatever the
-// index DB classified this entry as). Preserves the current override if it's
-// still present in the (possibly reloaded) template's list.
+// Fills the "Chunk:" combo from the CURRENT entry's own already-parsed tree
+// (g_app->struct_root, set at the end of populate_struct_tree() below) --
+// i.e. exactly the chunks this specific packfile actually contains, not the
+// full universe of container fourccs the loaded template knows about. Each
+// row is one of root's immediate children as BinaryParser::parseGw2Packfile
+// built them: the "Header" node, then one "FOURCC  (vNN)" node per real
+// chunk, in file order, with a combo-box index -> ParsedNode::offset mapping
+// stashed via CB_SETITEMDATA so on_struct_container_changed() can hand that
+// offset straight to struct_tree::select_chunk_by_offset() with no re-parse
+// and no string round-trip. Item 0 is always "(select a chunk)" and carries
+// no node -- it just means "nothing to jump to yet".
 void populate_struct_container_combo() {
     if (g_app == nullptr || g_app->hwnd_struct_container_combo == nullptr) {
         return;
     }
     HWND combo = g_app->hwnd_struct_container_combo;
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"(auto -- detect from PF header)"));
+    SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"(select a chunk)"));
+    SendMessageW(combo, CB_SETITEMDATA, 0, static_cast<LPARAM>(-1));
 
-    auto tpl = castlemist::tpl::get();  // reflect whatever's already loaded; never trigger a load here
-    int select_index = 0;
-    if (tpl && tpl->contains("fileTypes") && (*tpl)["fileTypes"].is_object()) {
-        std::vector<std::string> containers;
-        for (auto it = (*tpl)["fileTypes"].begin(); it != (*tpl)["fileTypes"].end(); ++it) {
-            containers.push_back(it.key());
-        }
-        std::sort(containers.begin(), containers.end());
-        for (size_t i = 0; i < containers.size(); ++i) {
-            std::wstring wname = castlemist::core::from_ascii(containers[i]);
-            SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(wname.c_str()));
-            if (containers[i] == g_app->struct_container_override) {
-                select_index = static_cast<int>(i) + 1;  // +1 for the "(auto)" row at index 0
-            }
+    if (!g_app->struct_root) {
+        SendMessageW(combo, CB_SETCURSEL, 0, 0);
+        return;
+    }
+
+    // Each row shows "0xOFFSET  FOURCC (vNN)  (ResolvedTypeName)" so the raw
+    // chunk id (its byte offset in the entry, matching what the hex view and
+    // the tree's own "@0x..." suffix show), its fourcc+version, and its
+    // resolved schema name are all visible without opening the tree first.
+    // ("Header" is the one row with a placeholder typeName of "PF" rather
+    // than a chunk schema -- it's the PF header entry, not a real chunk.)
+    for (const auto& child : g_app->struct_root->children) {
+        if (!child) continue;
+        wchar_t buf[512];
+        // name/typeName are ArenaNet fourcc/type identifiers -- always ASCII
+        // (see the same assumption in struct_tree.cpp's format_label).
+        std::wstring name = castlemist::core::from_ascii(child->name);
+        std::wstring type = castlemist::core::from_ascii(child->typeName);
+        swprintf(buf, 512, L"0x%zX  %ls  (%ls)", child->offset, name.c_str(), type.c_str());
+        int idx = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(buf)));
+        if (idx >= 0) {
+            SendMessageW(combo, CB_SETITEMDATA, idx, static_cast<LPARAM>(child->offset));
         }
     }
-    SendMessageW(combo, CB_SETCURSEL, select_index, 0);
-    if (select_index == 0) {
-        g_app->struct_container_override.clear();  // stale override (template reloaded without it) -> back to auto
-    }
+    SendMessageW(combo, CB_SETCURSEL, 0, 0);
 }
 
-// The combo's CBN_SELCHANGE handler: stash the picked container (empty for
-// "(auto)") and re-parse right away -- the user is already looking at the
-// Structure tab, that's how a click reached this combo, so there's no need
-// to go through the struct_tree_dirty lazy gate.
+// The combo's CBN_SELCHANGE handler: jump the Structure tree straight to the
+// chosen chunk. No re-parse -- the tree already holds every chunk this entry
+// has, this just scrolls to and selects the matching node (see
+// struct_tree::select_chunk_by_offset).
 void on_struct_container_changed() {
     if (g_app == nullptr || g_app->hwnd_struct_container_combo == nullptr) {
         return;
     }
     int sel = static_cast<int>(SendMessageW(g_app->hwnd_struct_container_combo, CB_GETCURSEL, 0, 0));
     if (sel <= 0) {
-        g_app->struct_container_override.clear();
-    } else {
-        wchar_t buf[64] = L"";
-        SendMessageW(g_app->hwnd_struct_container_combo, CB_GETLBTEXT, sel, reinterpret_cast<LPARAM>(buf));
-        g_app->struct_container_override = castlemist::core::to_ansi(buf);
+        return;
     }
-    populate_struct_tree();
+    LRESULT data = SendMessageW(g_app->hwnd_struct_container_combo, CB_GETITEMDATA, sel, 0);
+    if (data == CB_ERR || data < 0) {
+        return;
+    }
+    castlemist::structtree::select_chunk_by_offset(g_app->hwnd_struct_tree, static_cast<size_t>(data));
 }
 
 // Walks current_entry.decompressed against the loaded JSON struct template
@@ -105,6 +115,8 @@ void populate_struct_tree() {
     g_app->struct_tree_dirty = false;
     if (g_app->current_entry.decompressed.empty()) {
         castlemist::structtree::clear(g_app->hwnd_struct_tree);
+        g_app->struct_root.reset();
+        populate_struct_container_combo();
         return;
     }
 
@@ -114,41 +126,32 @@ void populate_struct_tree() {
         castlemist::structtree::set_message(g_app->hwnd_struct_tree,
             L"No struct template is loaded.\r\n"
             L"Use File -> Load Struct JSON... (gw2_packfile.json) to enable the parsed structure tree.");
-        return;
-    }
-
-    // First time a template becomes available, fill the manual override combo
-    // from it (see populate_struct_container_combo). Cheap to check, and keeps
-    // the combo in sync with whatever got auto-loaded/reloaded without wiping
-    // out a selection the user already made on every re-parse.
-    if (g_app->hwnd_struct_container_combo &&
-        SendMessageW(g_app->hwnd_struct_container_combo, CB_GETCOUNT, 0, 0) == 0) {
+        g_app->struct_root.reset();
         populate_struct_container_combo();
+        return;
     }
 
     BinaryParser parser;
     ParsedNodePtr root;
     std::string error;
-    bool ok;
-    if (g_app->struct_container_override.empty()) {
-        ok = parser.parse(g_app->current_entry.decompressed, *tpl, root, error);
-    } else {
-        // BinaryParser reads "containerOverride" straight off the template JSON
-        // (see the group-resolution in parseGw2Packfile) -- clone rather than
-        // mutate the shared/cached template, which other code (and other
-        // entries with no override) still reads unmodified.
-        nlohmann::json overridden = *tpl;
-        overridden["containerOverride"] = g_app->struct_container_override;
-        ok = parser.parse(g_app->current_entry.decompressed, overridden, root, error);
-    }
+    bool ok = parser.parse(g_app->current_entry.decompressed, *tpl, root, error);
     if (!ok || !root) {
         std::wstring werror(error.begin(), error.end());
         castlemist::structtree::set_message(g_app->hwnd_struct_tree,
             L"Could not parse this entry against the loaded template:\r\n" + werror);
+        g_app->struct_root.reset();
+        populate_struct_container_combo();
         return;
     }
 
     castlemist::structtree::set_tree(g_app->hwnd_struct_tree, root);
+
+    // The "Chunk:" combo is a navigator over THIS entry's own parsed tree, so
+    // it's rebuilt on every fresh parse (new entry selected, or the template
+    // got reloaded and changed what's here) -- not just once like the old
+    // template-wide fileTypes list used to be.
+    g_app->struct_root = root;
+    populate_struct_container_combo();
 }
 
 void populate_struct_tree_if_visible() {

@@ -174,10 +174,10 @@ void layout_children(int client_w, int client_h) {
     } else if (tab == MiddleTab::Decompressed) {
         MoveWindow(g_app->hwnd_hex_after, middle_x, content_y, middle_w, content_h, TRUE);
     } else if (tab == MiddleTab::Structure) {
-        // A thin toolbar row above the tree: "Container:" combo lets the
-        // schema group be forced instead of trusting the PF header's own
-        // containerType (see BinaryParser's containerOverride / preview.cpp's
-        // populate_struct_tree).
+        // A thin toolbar row above the tree: "Chunk:" combo lists every chunk
+        // actually present in the current entry's own parsed packfile (id +
+        // name) and jumps the tree to whichever one is picked (see preview.cpp's
+        // populate_struct_container_combo / on_struct_container_changed).
         constexpr int kComboRowH = 26;
         constexpr int kLabelW = 64;
         MoveWindow(g_app->hwnd_struct_container_label, middle_x + 6, content_y + 5, kLabelW, 18, TRUE);

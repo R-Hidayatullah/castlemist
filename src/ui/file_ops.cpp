@@ -268,13 +268,19 @@ void do_load_template(HWND hwnd) {
         return;
     }
     SetWindowTextW(g_app->hwnd_status_label, L"Struct template loaded.");
-    populate_struct_container_combo();  // fileTypes list may have changed with the new template
 
     // The "Structure" tab is a pure function of (current bytes, current
     // template) -- unlike the model/map surfaces it needs no re-extraction,
-    // just a re-walk against the newly loaded template.
+    // just a re-walk against the newly loaded template. That re-walk also
+    // rebuilds the "Chunk:" combo from the fresh tree (see
+    // populate_struct_tree's tail call to populate_struct_container_combo).
     if (g_app->dat_loaded && g_app->has_loaded_entry) {
         populate_struct_tree();
+    } else {
+        // No entry loaded yet to walk -- just clear the combo back to empty
+        // rather than leaving a stale chunk list from a previous template/file.
+        g_app->struct_root.reset();
+        populate_struct_container_combo();
     }
 
     // If a .modl entry is currently selected but wasn't parsed (no template was

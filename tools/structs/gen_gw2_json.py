@@ -192,10 +192,10 @@ def main():
 
     doc={"format":"gw2packfile","pointerSize":64,
          "fileTypes":fileTypes,"chunks":chunks,"strucTabs":strucTabs,"types":types}
-    with open(OUT_PATH,"w") as f:
+    with open(OUT_PATH,"w", encoding="utf-8") as f:
         json.dump(doc,f,separators=(",",":"))
     amb=sorted(n for n,t in tabs_per_name.items() if len(t)>1)
-    open(OUT_PATH+".done","w").write("fileTypes=%d globalChunks=%d types=%d ambiguous=%s"%(
+    open(OUT_PATH+".done","w", encoding="utf-8").write("fileTypes=%d globalChunks=%d types=%d ambiguous=%s"%(
         len(fileTypes),len(chunks),len(types),amb))
     print("OK fileTypes=%d chunks=%d types=%d ambiguous=%s"%(len(fileTypes),len(chunks),len(types),amb))
 

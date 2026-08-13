@@ -56,6 +56,16 @@ void set_message(HWND hwnd, const std::wstring& message);
 /// Clears the tree back to empty (no message, no nodes).
 void clear(HWND hwnd);
 
+/// Selects and reveals the top-level chunk node whose ParsedNode::offset
+/// equals `chunk_offset` (i.e. one of root's immediate children -- PF header
+/// or one of the chunk entries emitted by BinaryParser::parseGw2Packfile).
+/// Expands the tree down to that node (materializing its children the same
+/// lazy way a real click would -- see expand_node()), scrolls it into view,
+/// and gives it the selection. No-op if the tree is empty or no immediate
+/// child of the current root has that offset. Returns true if a node was
+/// found and selected.
+bool select_chunk_by_offset(HWND hwnd, size_t chunk_offset);
+
 } // namespace castlemist::structtree
 
 #endif // GW2_STRUCT_TREE_H

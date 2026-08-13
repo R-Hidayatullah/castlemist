@@ -204,8 +204,8 @@ def main():
     chunks = find_chunks()
     fresh = not os.path.exists(STATE_PATH)
     hdr_done, ver_done = load_state()
-    fout = open(OUT_PATH, "w" if fresh else "a")
-    fstate = open(STATE_PATH, "w" if fresh else "a")
+    fout = open(OUT_PATH, "w" if fresh else "a", encoding="utf-8")
+    fstate = open(STATE_PATH, "w" if fresh else "a", encoding="utf-8")
     if fresh:
         fout.write(LEGEND)
         fout.flush()
@@ -237,7 +237,7 @@ def main():
             fout.write("\n"); fout.flush()
     finally:
         fout.close(); fstate.close()
-    open(DONE_PATH, "w").write("ok")
+    open(DONE_PATH, "w", encoding="utf-8").write("ok")
     print("COMPLETE: %d chunk -> %s" % (len(chunks), OUT_PATH))
 
 main()

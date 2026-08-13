@@ -640,12 +640,12 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
 
         // "Structure" tab: JSON-struct-template-driven parsed field tree, right
         // after the two hex panels -- see struct_tree.h / BinaryParser.
-        // A small toolbar row above the tree lets the container/chunk-schema be
-        // picked manually instead of trusting the PF header's own containerType
-        // (or the DB's classification) -- useful for testing whether an entry's
-        // reported chunk type is actually the right one to parse it as.
+        // A small toolbar row above the tree lists every chunk actually found
+        // inside the CURRENT entry's own packfile (id/offset + fourcc + name --
+        // see populate_struct_container_combo()) so picking one jumps straight
+        // to that node in the tree below, instead of scrolling/expanding by hand.
         g_app->hwnd_struct_container_label =
-            CreateWindowExW(0, L"STATIC", L"Container:", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, hwnd,
+            CreateWindowExW(0, L"STATIC", L"Chunk:", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, hwnd,
                              nullptr, g_hinstance, nullptr);
         g_app->hwnd_struct_container_combo = CreateWindowExW(
             0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd,
