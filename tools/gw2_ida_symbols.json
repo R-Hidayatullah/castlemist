@@ -214,8 +214,8 @@
    "name": "CmpHuff_BuildDecodeTable",
    "comment": "Arena\\Services\\Compress\\CmpHuff.cpp  BuildDecodeTable  (asserts at :469 :504 :511)\n(table, bitstream) -> table\nReads an RLE'd code-length block using the bootstrap prefix code\n(CmpHuff_BootRangeTbl thresholds -> CmpHuff_BootSymTbl, packed as (runLength<<5)|codeLength).\nEmits a 256-entry hash table at table+0 ({codeBits, symbol} pairs, 8 bytes each),\nan overflow list at table+2048, and a spill Array at table+2336.\n\n*** DEGENERATE TABLE (important, legal input - do NOT treat as corruption) ***\nIf the length block decodes to all zeros (assignedCount == 0) the alphabet collapses to\n    headByCodeLen[0] = totalSymbolCount - 1 ; countByCodeLen[0] = 1\ni.e. the LAST symbol, carried in ZERO bits.  Substituting symbol 0 instead is wrong: it\nhappens to work when Cmp_DistExtraBits[0]==0 but desyncs whenever\nCmp_DistExtraBits[total-1]!=0, because the symbol also selects how many EXTRA bits follow.\nAlmost always the distance table of a highly repetitive payload.",
    "lvars": {
-    "0": "table",
-    "1": "bs",
+    "0": "bs",
+    "1": "table",
     "4": "allocTagA",
     "5": "allocTagB",
     "6": "hdrBitBuffer",
@@ -2072,6 +2072,31 @@
    "comment": "TextParser.cpp  walk a wide string and append every referenced stringId to\ncontext->decodeIdArray. Used by TextDecode_BeginDecodeString to discover dependencies.",
    "lvars": {},
    "labels": {}
+  },
+  "0x140c0bba0": {
+   "name": "ImgBc7_FitBlockMode",
+   "comment": "BC7 per-block mode fitting. Reads the BPTC interpolation weight tables\n(ImgBc7_Weights2/3/4) to evaluate candidate endpoint+index encodings for a 4x4 block\nand returns the chosen mode. This is the bulk of the BC7 cost - 5864 bytes of\npartition/endpoint search, versus 81 bytes for the whole DXT constant-alpha helper.",
+   "lvars": {
+    "575": "Src"
+   },
+   "labels": {}
+  },
+  "0x140c0d6a0": {
+   "name": "ImgBc7_PackBlock",
+   "comment": "BC7 block bit-packer: writes the chosen mode's partition, endpoints and index bits\ninto the 16-byte output block. Also reads the BPTC weight tables.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c16430": {
+   "name": "ImgBc7_CompressBlocks",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgBc7.cpp  BC7 / BPTC ENCODER entry point.\n  (outCompressedBlocks, sourcePixels, sourcePixelsCount, quality)\nAsserts both pointers non-null and sourcePixelsCount % DXT_BLOCK_TOTAL == 0.\nBC7 has its OWN source file and its own pipeline - it does NOT share the DXT path.\nCallers are the ImgMip / ImgBlt conversion routines that produce BC7 mips.",
+   "lvars": {
+    "0": "outCompressedBlocks",
+    "1": "sourcePixels",
+    "2": "sourcePixelsCount",
+    "3": "quality"
+   },
+   "labels": {}
   }
  },
  "data": {
@@ -2105,11 +2130,11 @@
   },
   "0x141c80410": {
    "name": "ImgFmt_Flags",
-   "comment": "ImgFmt_Flags: dword[38] (GR_FORMATS=0x26). bit0 = block compressed (4x4); 0x210 and 0x280 select the extra colour/alpha planes used by the ATEX block passes."
+   "comment": "ImgFmt_Flags: dword[38] capability bits per GR_FORMAT.\n  0x001  block compressed (4x4); drives ImgFmt_GetBlockDims\n  0x210 / 0x280  select which PLANES a block carries. ImgAtex_Encode derives the block\n         size from them:  planeDwords = (flags&0x280 ?2:0) + (flags&0x210 ?2:0)\n                                      + (format==GR_FORMAT_DXTL ?2:0)\n         and planeDwords*4 == bytes per block, cross-checked against bpp*16/8:\n           DXT1 0x071 -> 0x210 only            ->  8 bytes  (1 colour block)\n           DXTA 0x0a1 -> 0x280 only            ->  8 bytes  (1 alpha block)\n           DXT2..5, BC7 0x0b1 -> both          -> 16 bytes  (alpha + colour)\n           DXTN/3DC/BC5 0x201 -> both          -> 16 bytes  (two channels)\n           DXTL 0x011 -> 0x210 + the DXTL case -> 16 bytes\nThis is why the ATEX container needs no per-format decoder: the flags tell it how many\n8-byte planes a block has, and it moves blocks, never texels."
   },
   "0x141c801a0": {
    "name": "ImgFmt_InfoTable",
-   "comment": "ImgFmt_InfoTable: stride 3 dwords per GR_FORMAT; [0] = bits per pixel (see ImgFmt_GetBitCount)."
+   "comment": "ImgFmt_InfoTable: 3 dwords per GR_FORMAT (38 entries)\n  [0] bits per pixel   (x16/8 = bytes per 4x4 block for the block formats)\n  [1] ALPHA bits       ARGB8888=8 ARGB4444=4 ARGB1555=1 RGB888=0 DXT1=1 DXT3/5=4\n                       3DC/BC5/DXTN=0 (two-channel normal maps carry no alpha)\n  [2] LUMINANCE bits   AL88=8 AL44=4 L8=8, zero for everything else\nRead [0] via ImgFmt_GetBitCount. NOT a DXGI format map - the D3D11 format mapping lives\nin BgfxTexture.cpp and was not traced."
   },
   "0x142581b20": {
    "name": "ImgFmt_Names",
@@ -2162,6 +2187,18 @@
   "0x141c94420": {
    "name": "s_kTexCoordRemap",
    "comment": "dword[8] = {10,11,12,13,14,15,16,17} - GrFvf texcoord channel -> bgfx Attrib::TexCoord0..7.\nIDA had auto-typed this as the string \"\\n\" because the first entry is 10."
+  },
+  "0x141d4b8e0": {
+   "name": "ImgBc7_Weights2",
+   "comment": "BC7/BPTC 2-bit index interpolation weights {0,21,43,64} (n/64)."
+  },
+  "0x141d4b8f0": {
+   "name": "ImgBc7_Weights3",
+   "comment": "BC7/BPTC 3-bit index interpolation weights {0,9,18,27,37,46,55,64}."
+  },
+  "0x141d4b900": {
+   "name": "ImgBc7_Weights4",
+   "comment": "BC7/BPTC 4-bit index interpolation weights {0,4,9,...,60,64}."
   }
  },
  "inline_comments": {
