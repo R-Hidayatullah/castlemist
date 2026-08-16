@@ -45,6 +45,10 @@ namespace castlemist::ui {
 constexpr wchar_t kMainClassName[] = L"Gw2BrowserMain";
 constexpr wchar_t kPreviewClassName[] = L"Gw2PreviewSurface";
 constexpr wchar_t kModelClassName[] = L"Gw2ModelSurface";
+/// The "Game 1:1" surface. A sibling of the model surface, not a replacement:
+/// bgfx owns a device of its own and cannot share the one castlemist::render
+/// created, so the two views get a window each and only one is shown at a time.
+constexpr wchar_t kBgfxClassName[] = L"Gw2BgfxSurface";
 
 constexpr int kSplitterThickness = 5;
 constexpr int kSearchBarHeight = 118;  // id row + Type/Container row + Content row
@@ -159,6 +163,9 @@ constexpr UINT_PTR ID_MODE_WIRE = 2036;
 constexpr UINT_PTR ID_MODEL_RESET = 2037;
 constexpr UINT_PTR ID_MODE_SKEL = 2038;
 constexpr UINT_PTR ID_MODE_SHADER = 2039;
+/// "Game 1:1" -- switches the model pane to the bgfx surface (a second,
+/// independent view; the Direct3D 11 renderer keeps its own modes above).
+constexpr UINT_PTR ID_MODE_GW2BGFX = 2131;
 constexpr UINT_PTR ID_ANIM_COMBO = 2050;
 constexpr UINT_PTR ID_ANIM_PLAY = 2051;
 constexpr UINT_PTR ID_LAYER_PROP = 2052;
@@ -347,6 +354,10 @@ struct AppState {
     HWND hwnd_rotate = nullptr;
     HWND hwnd_fit = nullptr;
     HWND hwnd_alpha = nullptr;
+    /// The "Game 1:1" bgfx surface and its toolbar toggle. Both stay null when
+    /// the build has no bgfx (castlemist::gw2bgfxview::available() == false).
+    HWND hwnd_model_bgfx = nullptr;
+    HWND hwnd_mode_gw2bgfx = nullptr;
     HWND hwnd_mode_full = nullptr;
     HWND hwnd_mode_plain = nullptr;
     HWND hwnd_mode_wire = nullptr;
@@ -440,6 +451,16 @@ struct AppState {
     float preview_pan_x = 0.0f;
     float preview_pan_y = 0.0f;
     int preview_rotation_quarters = 0;
+
+    /// "Game 1:1" view: on = the bgfx surface is shown in place of the D3D11
+    /// one. Its own orbit-drag state, since the two surfaces are separate
+    /// windows with separate cameras.
+    bool bgfx_view_active = false;
+    bool bgfx_dragging = false;
+    POINT bgfx_drag_last{};
+    /// Set when the current entry has been handed to the bgfx view, so the
+    /// surface is not reloaded on every repaint.
+    bool bgfx_model_loaded = false;
 
     // Model orbit-drag state (mirrors the image drag state above).
     bool model_dragging = false;
@@ -580,6 +601,10 @@ void try_autoload_index(HWND hwnd);
 HMENU build_menu();
 LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 LRESULT CALLBACK ModelWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+LRESULT CALLBACK BgfxWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+/// Hands the current entry to the "Game 1:1" surface, initialising bgfx on
+/// first use. No-op unless the view is active and the entry is a model.
+void sync_bgfx_view();
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 } // namespace castlemist::ui

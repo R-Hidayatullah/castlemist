@@ -8,6 +8,13 @@ metadata:
   modified: 2026-07-29T04:30:13.861Z
 ---
 
+> **The heuristics below are a fallback, not the mechanism ([[gw2-amat-draw-state]],
+> 2026-08-16).** The engine picks its effect by **token64** with a fixed remap
+> chain and a pass-0-only default — no content inspection at all. Detecting a
+> prepass by its `0.5` immediates or by the SH uniform block is still useful for
+> surveying an archive, and remains the right answer when a material's token is
+> unknown, but a renderer that has the MODL material's token should use it.
+
 An AMAT's `shaders[]` holds **every shader the engine binds for that material across
 the whole frame**, not just the one that paints it: the deferred normal G-buffer
 prepass, depth-only and depth-peel passes, and the real colour pass. Choosing the

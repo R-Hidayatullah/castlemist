@@ -129,6 +129,18 @@ int run(HINSTANCE hInstance, int cmd_show) {
     model_class.lpszClassName = kModelClassName;
     RegisterClassExW(&model_class);
 
+    // The "Game 1:1" surface, registered even when the build has no bgfx --
+    // the window is simply never created in that case.
+    WNDCLASSEXW bgfx_class{};
+    bgfx_class.cbSize = sizeof(bgfx_class);
+    bgfx_class.style = CS_DBLCLKS;
+    bgfx_class.lpfnWndProc = BgfxWndProc;
+    bgfx_class.hInstance = hInstance;
+    bgfx_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    bgfx_class.hbrBackground = nullptr;
+    bgfx_class.lpszClassName = kBgfxClassName;
+    RegisterClassExW(&bgfx_class);
+
     // The icon is resource 1 in castlemist.exe (see src/app/resource.h).
     // LoadIconW picks the size Windows asks for out of the multi-size .ico, so
     // the title bar gets the 16px artwork and Alt-Tab the 32px one -- each

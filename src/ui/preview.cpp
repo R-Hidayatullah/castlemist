@@ -213,6 +213,11 @@ void apply_extracted_entry(uint32_t mft_index, ExtractedEntry&& entry) {
         break;
     case PreviewKind::Model:
         castlemist::gfx::clear_texture();
+        // A different entry is on screen now, so the "Game 1:1" surface has to
+        // reload. Deferred to its next paint rather than done here: the view is
+        // usually hidden, and loading a model it is not showing costs a full
+        // archive read and a pile of GPU uploads for nothing.
+        g_app->bgfx_model_loaded = false;
         if (g_app->current_entry.model) {
             castlemist::render::set_model(*g_app->current_entry.model);
             // A standalone skin/model has no env of its own -> light it with the

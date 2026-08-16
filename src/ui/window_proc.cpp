@@ -12,6 +12,7 @@
 #include <windowsx.h>
 
 #include "castlemist/format/struct_template.h"
+#include "castlemist/render/gw2bgfx_view.h"
 #include "castlemist/ui/struct_tree.h"
 
 namespace castlemist::ui {
@@ -152,6 +153,98 @@ LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         return 0;
     default:
         break;
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+/// Hands the selected entry to the "Game 1:1" surface.
+///
+/// The bgfx view loads straight out of the archive by MFT index rather than
+/// from the ModelPreview castlemist::render consumes -- that is the point of
+/// it: nothing between the .dat and the draw call has been reinterpreted, so
+/// what it shows can be trusted as a reference for the other renderer.
+void sync_bgfx_view() {
+    if (g_app == nullptr || !castlemist::gw2bgfxview::available()) return;
+    if (!g_app->bgfx_view_active || g_app->hwnd_model_bgfx == nullptr) return;
+    if (g_app->bgfx_model_loaded) return;
+
+    if (!castlemist::gw2bgfxview::initialize(g_app->hwnd_model_bgfx)) {
+        SetWindowTextW(g_app->hwnd_text_preview,
+                       L"Game 1:1 view: bgfx could not initialise on this machine.");
+        g_app->bgfx_model_loaded = true; // do not retry every paint
+        return;
+    }
+    if (!g_app->has_loaded_entry) return;
+
+    std::string error;
+    // mft_index is the archive row; the view wants exactly that (baseId - 1).
+    if (!castlemist::gw2bgfxview::set_model(g_app->data_gw2, g_app->current_mft_index, error)) {
+        castlemist::gw2bgfxview::clear_model();
+    }
+    g_app->bgfx_model_loaded = true;
+    InvalidateRect(g_app->hwnd_model_bgfx, nullptr, FALSE);
+}
+
+/// The "Game 1:1" surface. Deliberately spare next to ModelWndProc: no gizmo,
+/// no picking, no transform card -- this view exists to show the model the way
+/// the client would draw it, and every extra control is another thing standing
+/// between the archive and the pixels.
+LRESULT CALLBACK BgfxWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    switch (msg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        BeginPaint(hwnd, &ps);
+        sync_bgfx_view();
+        castlemist::gw2bgfxview::render();
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_SIZE:
+        castlemist::gw2bgfxview::on_resize(LOWORD(lparam), HIWORD(lparam));
+        return 0;
+    case WM_MOUSEWHEEL: {
+        int notches = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+        castlemist::gw2bgfxview::zoom(std::pow(0.9f, static_cast<float>(notches)));
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    }
+    case WM_LBUTTONDOWN:
+        SetCapture(hwnd);
+        if (g_app != nullptr) {
+            g_app->bgfx_dragging = true;
+            g_app->bgfx_drag_last = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        }
+        return 0;
+    case WM_MOUSEMOVE:
+        if (g_app != nullptr && g_app->bgfx_dragging) {
+            POINT cur{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+            // Negated so the model follows the cursor, matching ModelWndProc.
+            castlemist::gw2bgfxview::orbit(
+                static_cast<float>(g_app->bgfx_drag_last.x - cur.x) * 0.01f,
+                static_cast<float>(g_app->bgfx_drag_last.y - cur.y) * 0.01f);
+            g_app->bgfx_drag_last = cur;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    case WM_LBUTTONUP:
+        if (g_app != nullptr) g_app->bgfx_dragging = false;
+        ReleaseCapture();
+        return 0;
+    case WM_RBUTTONDOWN:
+        // Right-click flips the model 180 deg about X. Characters' armour is
+        // stored in a bind-pose space whose root rotation lives in a skeleton
+        // this view does not read, so those arrive upside down; props do not.
+        // Rather than guess a rule that is wrong half the time, this is the
+        // one-click correction.
+        if (g_app != nullptr) {
+            float t[3];
+            castlemist::gw2bgfxview::rotation_trim(t);
+            castlemist::gw2bgfxview::set_rotation_trim(t[0] == 0.0f ? 180.0f : 0.0f, t[1], t[2]);
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
@@ -375,6 +468,19 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         g_app->hwnd_model = CreateWindowExW(WS_EX_CLIENTEDGE, kModelClassName, L"",
                                              WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 0, 0, hwnd, nullptr,
                                              g_hinstance, nullptr);
+        // The "Game 1:1" surface sits beside it, hidden until the mode is
+        // picked. Separate windows because bgfx creates its own D3D11 device
+        // and cannot share the one castlemist::render already owns.
+        if (castlemist::gw2bgfxview::available()) {
+            g_app->hwnd_model_bgfx =
+                CreateWindowExW(WS_EX_CLIENTEDGE, kBgfxClassName, L"",
+                                 WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, 0, 0, hwnd,
+                                 nullptr, g_hinstance, nullptr);
+            g_app->hwnd_mode_gw2bgfx =
+                CreateWindowExW(0, L"BUTTON", L"Game 1:1", WS_CHILD | BS_AUTOCHECKBOX | BS_PUSHLIKE,
+                                 0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(ID_MODE_GW2BGFX),
+                                 g_hinstance, nullptr);
+        }
         g_app->hwnd_mode_full =
             CreateWindowExW(0, L"BUTTON", L"Full", WS_CHILD, 0, 0, 0, 0, hwnd,
                              reinterpret_cast<HMENU>(ID_MODE_FULL), g_hinstance, nullptr);
@@ -1039,6 +1145,22 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         case ID_MODE_SHADER:
             set_model_mode(castlemist::render::RenderMode::GameShader);
             return 0;
+        case ID_MODE_GW2BGFX: {
+            // Swap which surface is on screen. Nothing about the D3D11 renderer
+            // changes -- it keeps its model, its camera and its mode, so
+            // toggling back lands exactly where it was left.
+            g_app->bgfx_view_active =
+                SendMessageW(g_app->hwnd_mode_gw2bgfx, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            g_app->bgfx_model_loaded = false;
+            relayout();
+            if (g_app->bgfx_view_active) {
+                sync_bgfx_view();
+                InvalidateRect(g_app->hwnd_model_bgfx, nullptr, FALSE);
+            } else {
+                InvalidateRect(g_app->hwnd_model, nullptr, FALSE);
+            }
+            return 0;
+        }
         case ID_MODEL_RESET:
             reset_model_view();
             return 0;
@@ -1294,6 +1416,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         castlemist::snd::shutdown();
         castlemist::gfx::shutdown();
         castlemist::render::shutdown();
+        castlemist::gw2bgfxview::shutdown();
         delete g_app;
         g_app = nullptr;
         PostQuitMessage(0);

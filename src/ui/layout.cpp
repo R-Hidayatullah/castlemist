@@ -4,6 +4,7 @@
 #include "detail/app_state.h"
 
 #include "castlemist/core/text.h"
+#include "castlemist/render/gw2bgfx_view.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -103,7 +104,14 @@ void layout_children(int client_w, int client_h) {
     ShowWindow(g_app->hwnd_split_content_h, content_mode ? SW_SHOW : SW_HIDE);
 
     ShowWindow(g_app->hwnd_preview, show_image ? SW_SHOW : SW_HIDE);
-    ShowWindow(g_app->hwnd_model, show_model ? SW_SHOW : SW_HIDE);
+    // Exactly one 3D surface is up at a time: the "Game 1:1" bgfx view takes
+    // the pane when it is toggled on, otherwise the Direct3D 11 renderer keeps
+    // it. Neither is destroyed, so switching back restores the other view's
+    // camera and model untouched.
+    const bool use_bgfx = show_model && g_app->bgfx_view_active && g_app->hwnd_model_bgfx != nullptr;
+    ShowWindow(g_app->hwnd_model, (show_model && !use_bgfx) ? SW_SHOW : SW_HIDE);
+    if (g_app->hwnd_model_bgfx != nullptr)
+        ShowWindow(g_app->hwnd_model_bgfx, use_bgfx ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_text_preview, show_text ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_strs_list, show_strs ? SW_SHOW : SW_HIDE);
     bool show_still = show_image && !show_video;
@@ -132,6 +140,8 @@ void layout_children(int client_w, int client_h) {
     // "Shader" (real DXBC) mode now applies to the map scene too (lazily builds
     // the game materials on first use), so show it for any 3D model surface.
     ShowWindow(g_app->hwnd_mode_shader, show_model ? SW_SHOW : SW_HIDE);
+    if (g_app->hwnd_mode_gw2bgfx != nullptr)
+        ShowWindow(g_app->hwnd_mode_gw2bgfx, show_model ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_model_reset, show_model ? SW_SHOW : SW_HIDE);
     ShowWindow(g_app->hwnd_skel_toggle, (show_model && !show_map) ? SW_SHOW : SW_HIDE);
     bool show_anim = show_model && !show_map && castlemist::render::has_skeleton();
@@ -280,6 +290,8 @@ void layout_children(int client_w, int client_h) {
             tb.push_back({g_app->hwnd_mode_plain, kButtonW, kButtonH, 0});
             tb.push_back({g_app->hwnd_mode_wire, kButtonW, kButtonH, 0});
             tb.push_back({g_app->hwnd_mode_shader, kButtonW, kButtonH, 0});
+            if (g_app->hwnd_mode_gw2bgfx != nullptr)
+                tb.push_back({g_app->hwnd_mode_gw2bgfx, 72, kButtonH, 0});
             tb.push_back({g_app->hwnd_model_reset, kButtonW, kButtonH, 0});
             if (show_map) {
                 tb.push_back({g_app->hwnd_layer_prop, kButtonW, kButtonH, 0});
@@ -323,9 +335,15 @@ void layout_children(int client_w, int client_h) {
             int toolbar_h = rows * kToolbarHeight;
             int surf_y = content_y + toolbar_h;
             int surf_h = std::max(0, content_h - toolbar_h);
-            MoveWindow(g_app->hwnd_model, pane_x, surf_y, pane_w, surf_h, TRUE);
-            castlemist::render::on_resize(pane_w, surf_h);
-            castlemist::render::render();
+            if (use_bgfx) {
+                MoveWindow(g_app->hwnd_model_bgfx, pane_x, surf_y, pane_w, surf_h, TRUE);
+                castlemist::gw2bgfxview::on_resize(pane_w, surf_h);
+                castlemist::gw2bgfxview::render();
+            } else {
+                MoveWindow(g_app->hwnd_model, pane_x, surf_y, pane_w, surf_h, TRUE);
+                castlemist::render::on_resize(pane_w, surf_h);
+                castlemist::render::render();
+            }
         } else if (show_audio) {
             // Audio: a Play/Stop row + a seek bar + "m:ss / m:ss" time readout above
             // the info text (with a sound selector for multi-sound banks).

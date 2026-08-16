@@ -67,6 +67,32 @@ endif()
 include(Layers)
 include(Externals)
 
+# The bgfx Guild Wars 2 itself vendors, pinned and fingerprint-checked.
+#
+# Two consumers now: the 1:1 tools under tools/viewer/gw2bgfx, and the app's
+# "Game 1:1" surface (src/render/gw2bgfx_view.cpp), which runs the same path on
+# its own bgfx device inside a child window. The application's original
+# Direct3D 11 renderer is untouched and remains the default -- the bgfx surface
+# is a second, independent view for comparing against it.
+#
+# No longer gated on CASTLEMIST_BUILD_TOOLS, since the app itself wants it. A
+# clone without external/bgfx still configures: gw2bgfx_view.cpp compiles to a
+# stub whose available() returns false, and the UI hides the mode.
+if (EXISTS "${PROJECT_SOURCE_DIR}/external/bgfx/src")
+    include(Bgfx)
+    set(CASTLEMIST_HAVE_BGFX ON)
+
+    # The backend-agnostic half of the 1:1 renderer: AMAT effect selection and
+    # the bgfx draw-state composition. Declared here rather than in
+    # tools/CMakeLists.txt so the render layer can link it too.
+    add_library(gw2bgfx_core STATIC
+        tools/viewer/gw2bgfx/amat_effect.cpp
+        tools/viewer/gw2bgfx/bgfx_draw.cpp)
+    target_include_directories(gw2bgfx_core PUBLIC tools/viewer/gw2bgfx)
+    target_link_libraries(gw2bgfx_core PUBLIC ext::bgfx)
+    set_target_properties(gw2bgfx_core PROPERTIES FOLDER "castlemist/tools")
+endif()
+
 message(STATUS "castlemist: build type   = ${CMAKE_BUILD_TYPE}")
 message(STATUS "castlemist: layer kind   = ${CASTLEMIST_LAYER_KIND}")
 
@@ -102,6 +128,28 @@ castlemist_add_layer(sim    DEPS castlemist::extract ext::glm)
 
 castlemist_add_layer(render DEPS castlemist::extract castlemist::sim
                                  d3d11 dxgi d3dcompiler dxguid)
+
+# The "Game 1:1" surface. PRIVATE: nothing above render needs bgfx headers --
+# gw2bgfx_view.h is plain C++ and the UI only ever calls available().
+if (CASTLEMIST_HAVE_BGFX)
+    target_link_libraries(castlemist_render PRIVATE gw2bgfx_core)
+    target_compile_definitions(castlemist_render PRIVATE CASTLEMIST_HAVE_BGFX=1)
+
+    # bgfx.cpp defines two __declspec(dllexport) globals -- NvOptimusEnablement
+    # and AmdPowerXpressRequestHighPerformance, the driver hints that ask a
+    # laptop for its discrete GPU. On MinGW an explicit dllexport anywhere in a
+    # DLL switches OFF ld's "export everything" default, and WINDOWS_EXPORT_ALL_
+    # SYMBOLS relies on exactly that default: linking bgfx in dropped the render
+    # layer's export table from hundreds of symbols to those two, and every
+    # castlemist::render call from the ui layer failed to link.
+    #
+    # Passing the flag explicitly forces the behaviour back on rather than
+    # leaving it as a default ld withdraws. The vendored bgfx tree is pinned and
+    # fingerprint-checked, so it is not ours to patch.
+    if (MINGW AND CASTLEMIST_SHARED_LAYERS)
+        target_link_options(castlemist_render PRIVATE -Wl,--export-all-symbols)
+    endif()
+endif()
 
 # uxtheme: SetWindowTheme, for the dark scroll bars and list headers.
 # dwmapi is *not* linked -- DwmSetWindowAttribute is resolved with GetProcAddress

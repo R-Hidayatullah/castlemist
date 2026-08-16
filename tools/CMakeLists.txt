@@ -62,3 +62,47 @@ castlemist_add_tool(gw2viewer   WIN32
 castlemist_add_tool(gw2gsviewer WIN32
     SOURCES viewer/gw2gsviewer.cpp
     DEPS    castlemist::native ext::json ext::stb d3d11 dxgi d3dcompiler dxguid)
+
+# -----------------------------------------------------------------------------
+# gw2bgfx -- the 1:1 renderer.
+#
+# The two viewers above translate GW2's render data into hand-written Direct3D
+# 11 calls. This one does not translate: it links the same bgfx the client
+# links (external/bgfx, pinned -- see cmake/Bgfx.cmake) and hands bgfx the
+# client's own bytes. AMAT shader blobs go to bgfx::createShader unmodified,
+# effect renderState words go into bgfx::setState, GrFvf-derived layouts are
+# bgfx::VertexLayout, and vertex buffers upload without repacking because the
+# client's own BgfxBuffer.cpp:755 assert guarantees the on-disk stride already
+# equals the GPU stride.
+#
+# Everything under gw2bgfx/ is a transcription of decompiled client code with
+# the source address and Perforce line in the comment. selftest checks those
+# transcriptions against values read out of the binary and out of real archive
+# content -- run it after touching any of them.
+# -----------------------------------------------------------------------------
+if (CASTLEMIST_HAVE_BGFX)
+    # gw2bgfx_core itself is declared in the top-level CMakeLists now: the app's
+    # "Game 1:1" surface (src/render/gw2bgfx_view.cpp) links it too, so it has
+    # to exist whether or not tools are being built.
+
+    castlemist_add_tool(gw2bgfx_selftest
+        SOURCES viewer/gw2bgfx/selftest.cpp
+        DEPS    gw2bgfx_core)
+
+    # gw2bgfx_probe -- runs the faithful path over a real model and reports what
+    # the client would do, without rendering. Checks the two things that have
+    # definite right answers: the vertex-stride identity and whether each
+    # material's effect was found by its own token or by the fallback.
+    castlemist_add_tool(gw2bgfx_probe
+        SOURCES viewer/gw2bgfx/probe.cpp
+        DEPS    gw2bgfx_core castlemist::native ext::json)
+
+    # gw2bgfx_viewer -- the renderer itself.
+    castlemist_add_tool(gw2bgfx_viewer
+        SOURCES viewer/gw2bgfx/viewer.cpp
+        DEPS    gw2bgfx_core castlemist::native ext::json)
+
+    if (CASTLEMIST_BUILD_TESTS)
+        add_test(NAME gw2bgfx_selftest COMMAND gw2bgfx_selftest)
+    endif()
+endif()

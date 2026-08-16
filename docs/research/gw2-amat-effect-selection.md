@@ -8,6 +8,13 @@ metadata:
   modified: 2026-07-29T06:57:26.812Z
 ---
 
+> **Superseded in part by [[gw2-amat-draw-state]] (2026-08-16).** Every address
+> below has rotted; the re-anchored ones are in that note. Two findings here are
+> also wrong: `shaderPassFlags` bit 0 is the **cull mode**, not an opaque marker,
+> and the default token `183330` is accepted on **pass 0 only**. The token chain,
+> the write-mask rule and the "blend comes only from `effect.renderState`"
+> conclusion all still hold.
+
 How GW2 turns an AMAT into a draw (IDA, Gw2-64-disabled-aslr.exe):
 
 **Effect selection — `sub_140BFAD20` (BgfxShader.cpp ~1069-1200)**

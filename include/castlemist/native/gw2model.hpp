@@ -283,7 +283,14 @@ struct Model {
 // --- AMAT (bgfx shader package) extraction ---
 struct AmatSamplerBind {
     uint64_t token = 0;
-    uint32_t textureIndex = 0; // which material texture
+    uint32_t stateIndex = 0;   // -> AmatTree::samplerStates[] (bgfx sampler flags)
+    /// @brief Which material texture to bind.
+    ///
+    /// `0xFFFFFFFF` is meaningful, not "absent": the engine's uniform-count
+    /// assert (BgfxShader.cpp:336) subtracts exactly these, because a sampler
+    /// with textureIndex -1 consumes no bgfx uniform. Getting that wrong
+    /// shifts every later sampler binding by one.
+    uint32_t textureIndex = 0;
     uint32_t textureSlot = 0;  // -> sampler register (t#/s#)
 };
 struct AmatShader {
@@ -349,6 +356,106 @@ struct AmatSet {
     int selectedQuality = -1;     ///< ::amatQualityRank of the tier selection used
     /// @}
     std::string error;
+};
+
+// --- AMAT, whole tree ------------------------------------------------------
+//
+// `AmatSet` above is a *decision*: it walks the tree and hands back one
+// vs/ps pair chosen by content heuristics. That is the right shape for the
+// reconstruction renderer, which has no material token to work with.
+//
+// `AmatTree` is the tree itself, unflattened, so a renderer that DOES have the
+// MODL material's token can run the engine's own selection over it -- technique
+// by quality, effect by token64 with the remap chain, vertex shader by the
+// mesh-derived variant id. See docs/research/gw2-amat-draw-state.md and
+// tools/viewer/gw2bgfx.
+//
+// Field names and nesting are the packfile schema's; the layouts were
+// cross-checked against the runtime structs the client indexes (AmatEffectV1 is
+// 36 bytes: 8+8+4+4+12).
+
+/// @brief `AmatVertexShaderVariantV1`. `variant` is the small integer 0..4 the
+///        draw loop derives from mesh flags, NOT a Token.
+struct AmatVsVariantRaw {
+    uint32_t variant = 0;
+    uint32_t vertexShaderIndex = 0;
+};
+
+/// @brief `AmatEffectV1`.
+struct AmatEffectRaw {
+    uint64_t token = 0;            ///< The engine's selection key.
+    uint64_t renderState = 0;      ///< PARTIAL bgfx state: blend + ALPHA_REF only.
+    uint32_t shaderPassFlags = 0;  ///< Write-mask / depth / cull bits.
+    uint32_t pixelShaderIndex = 0;
+    std::vector<AmatVsVariantRaw> vertexShaderVariants;
+};
+
+/// @brief `AmatPassV1`.
+struct AmatPassRaw { std::vector<AmatEffectRaw> effects; };
+
+/// @brief `AmatTechniqueV1` -- a quality level, not a frame pass.
+struct AmatTechniqueRaw {
+    uint32_t quality = 0;          ///< token32 decoding to ultra/high/medium/low
+    std::vector<AmatPassRaw> passes;
+};
+
+/// @brief `AmatShaderBinaryV1`.
+struct AmatShaderBinaryRaw {
+    std::vector<uint8_t> data;              ///< bgfx blob: 'VSH'/'FSH' + 0x0b, then DXBC
+    std::vector<uint32_t> constants;        ///< one token32 per non-sampler uniform
+    std::vector<AmatSamplerBind> samplers;  ///< one per sampler uniform
+};
+
+/// @brief `AmatShaderV1`.
+///
+/// The second binary is `osxShader` (Metal), not a shading-model variant; the
+/// client selects it on a platform flag that is clear on the D3D11 backend.
+struct AmatShaderRaw {
+    bool isPixelShader = false;
+    AmatShaderBinaryRaw dx11Shader;
+    AmatShaderBinaryRaw osxShader;
+};
+
+/// @brief `AmatMaterialV1` -- the AMAT's whole BGFX chunk.
+struct AmatTree {
+    std::vector<AmatShaderRaw> shaders;
+    std::vector<uint32_t> samplerStates;   ///< AmatSamplerStateV1::state, bgfx sampler flags
+    std::vector<AmatTechniqueRaw> techniques;
+    std::string error;
+    bool ok() const { return error.empty() && !shaders.empty(); }
+};
+
+// --- Geometry, undecoded ---------------------------------------------------
+
+/// @brief One geoset with its vertex buffer left exactly as the file stores it.
+///
+/// `Mesh` above decodes into the fat 144-byte ::Vertex, which is what the
+/// reconstruction renderer wants. This does not decode at all, because it does
+/// not have to: `GrFvf_CreateVertexLayout` asserts, in the shipping client,
+/// that `DDI_STRIDE(fvf) == vertexLayout->CalcStride()`, so the bytes in the
+/// file are already in GPU layout. Repacking them can only lose information --
+/// packed tangent frames and half-precision UVs both widen on the way through
+/// ::Vertex.
+struct GeosetRaw {
+    uint32_t fvf = 0;
+    uint32_t vertexCount = 0;
+    uint32_t materialIndex = 0;
+    /// @brief `vertexCount * DDI_STRIDE(fvf)` bytes, verbatim.
+    std::vector<uint8_t> vertexBytes;
+    /// @brief LOD0 indices, 16-bit as stored. Index 0 of ::lodIndices.
+    std::vector<uint16_t> indices;
+    /// @brief LOD1..N over the same vertices. Empty entries are kept so the
+    ///        LOD numbering stays meaningful.
+    std::vector<std::vector<uint16_t>> lodIndices;
+    /// @brief token64 per bone slot; vertex BlendIndices index into this.
+    std::vector<uint64_t> boneBindings;
+    float minB[3] = {0, 0, 0}, maxB[3] = {0, 0, 0};
+
+    /// @brief Byte stride implied by the buffer, or 0 when the file disagrees
+    ///        with itself. Compare against `grFvfDdiStride(fvf)`.
+    uint32_t stride() const {
+        return vertexCount ? (uint32_t)(vertexBytes.size() / vertexCount) : 0;
+    }
 };
 // shaderPassFlags decoded from the engine's own draw path (Gw2-64
 // sub_140AAFDB0, BgfxDraw.cpp). It is a bag of RENDER-TARGET/DEPTH bits, which
@@ -1260,7 +1367,232 @@ public:
         return out;
     }
 
+    // -----------------------------------------------------------------------
+    /// @brief Parse the AMAT's BGFX chunk into the whole technique/pass/effect
+    ///        tree, deciding nothing.
+    ///
+    /// The counterpart to ::extractAmat, which flattens the same data down to
+    /// one heuristically chosen vs/ps pair. Use this when you have the MODL
+    /// material's token64 and can run the engine's own selection instead.
+    // -----------------------------------------------------------------------
+    AmatTree extractAmatTree() {
+        AmatTree out;
+        std::string root; uint16_t ver = 0;
+        size_t bgfx = findChunk("BGFX", &root, &ver);
+        if (!bgfx || root.empty()) { out.error = "no BGFX chunk / schema"; return out; }
+        size_t off; json fj;
+
+        // Reads an array_ptr field: returns the element base, and fills the
+        // element type name, element stride and count. Zero base means empty.
+        auto arrayField = [&](const std::string& type, size_t start, const char* field,
+                              std::string& elemType, int& elemSize, uint32_t& count) -> size_t {
+            size_t o; json f; count = 0; elemSize = 0; elemType.clear();
+            if (!fieldOffset(type, field, o, f)) return 0;
+            size_t base = arrayAt(start + o, count);
+            if (f.contains("element") && f["element"].is_object())
+                elemType = f["element"].value("struct", std::string());
+            elemSize = elemType.empty() ? 0 : typeSize(elemType);
+            return base;
+        };
+
+        // --- shaders[] -----------------------------------------------------
+        {
+            std::string shType; int shSize = 0; uint32_t n = 0;
+            size_t base = arrayField(root, bgfx, "shaders", shType, shSize, n);
+
+            // One AmatShaderBinaryV* -> AmatShaderBinaryRaw.
+            auto readBinary = [&](const std::string& binType, size_t bs, AmatShaderBinaryRaw& dst) {
+                size_t o; json f;
+                if (fieldOffset(binType, "data", o, f)) {
+                    uint32_t dn = 0; size_t db = arrayAt(bs + o, dn);
+                    if (db && dn && db + dn <= n_) dst.data.assign(d_ + db, d_ + db + dn);
+                }
+                {
+                    std::string cT; int cS = 0; uint32_t cn = 0;
+                    size_t cb = arrayField(binType, bs, "constants", cT, cS, cn);
+                    size_t o3; json f3;
+                    for (uint32_t j = 0; cb && cS > 0 && j < cn; ++j)
+                        if (fieldOffset(cT, "token", o3, f3))
+                            dst.constants.push_back(rd32(cb + (size_t)j * cS + o3));
+                }
+                {
+                    std::string sT; int sS = 0; uint32_t sn = 0;
+                    size_t sb = arrayField(binType, bs, "samplers", sT, sS, sn);
+                    for (uint32_t j = 0; sb && sS > 0 && j < sn; ++j) {
+                        size_t se = sb + (size_t)j * sS, o3; json f3;
+                        AmatSamplerBind b;
+                        // token64 is a fixed 8 bytes regardless of the packfile's
+                        // pointer width, so rd64 rather than rdPtr.
+                        if (fieldOffset(sT, "token", o3, f3))        b.token = rd64(se + o3);
+                        if (fieldOffset(sT, "stateIndex", o3, f3))   b.stateIndex = rd32(se + o3);
+                        if (fieldOffset(sT, "textureIndex", o3, f3)) b.textureIndex = rd32(se + o3);
+                        if (fieldOffset(sT, "textureSlot", o3, f3))  b.textureSlot = rd32(se + o3);
+                        dst.samplers.push_back(b);
+                    }
+                }
+            };
+
+            for (uint32_t i = 0; base && shSize > 0 && i < n; ++i) {
+                size_t se = base + (size_t)i * shSize;
+                AmatShaderRaw sh;
+                size_t o; json f;
+                if (fieldOffset(shType, "isPixelShader", o, f)) sh.isPixelShader = rd32(se + o) != 0;
+                if (fieldOffset(shType, "dx11Shader", o, f))
+                    readBinary(f.value("type", std::string()), se + o, sh.dx11Shader);
+                if (fieldOffset(shType, "osxShader", o, f))
+                    readBinary(f.value("type", std::string()), se + o, sh.osxShader);
+                out.shaders.push_back(std::move(sh));
+            }
+        }
+
+        // --- samplers[] (the shared sampler-state table) ---------------------
+        {
+            std::string sT; int sS = 0; uint32_t n = 0;
+            size_t base = arrayField(root, bgfx, "samplers", sT, sS, n);
+            size_t o; json f;
+            for (uint32_t i = 0; base && sS > 0 && i < n; ++i)
+                out.samplerStates.push_back(fieldOffset(sT, "state", o, f)
+                                                ? rd32(base + (size_t)i * sS + o) : 0);
+        }
+
+        // --- techniques[] -> passes[] -> effects[] -> vertexShaderVariants[] --
+        {
+            std::string tT; int tS = 0; uint32_t tN = 0;
+            size_t tb = arrayField(root, bgfx, "techniques", tT, tS, tN);
+            for (uint32_t ti = 0; tb && tS > 0 && ti < tN; ++ti) {
+                size_t te = tb + (size_t)ti * tS;
+                AmatTechniqueRaw tech;
+                size_t o; json f;
+                if (fieldOffset(tT, "quality", o, f)) tech.quality = rd32(te + o);
+
+                std::string pT; int pS = 0; uint32_t pN = 0;
+                size_t pb = arrayField(tT, te, "passes", pT, pS, pN);
+                for (uint32_t pi = 0; pb && pS > 0 && pi < pN; ++pi) {
+                    size_t pe = pb + (size_t)pi * pS;
+                    AmatPassRaw pass;
+
+                    std::string eT; int eS = 0; uint32_t eN = 0;
+                    size_t eb = arrayField(pT, pe, "effects", eT, eS, eN);
+                    for (uint32_t ei = 0; eb && eS > 0 && ei < eN; ++ei) {
+                        size_t ee = eb + (size_t)ei * eS;
+                        AmatEffectRaw eff;
+                        if (fieldOffset(eT, "token", o, f))            eff.token = rd64(ee + o);
+                        if (fieldOffset(eT, "renderState", o, f))      eff.renderState = rd64(ee + o);
+                        if (fieldOffset(eT, "shaderPassFlags", o, f))  eff.shaderPassFlags = rd32(ee + o);
+                        if (fieldOffset(eT, "pixelShaderIndex", o, f)) eff.pixelShaderIndex = rd32(ee + o);
+
+                        std::string vT; int vS = 0; uint32_t vN = 0;
+                        size_t vb = arrayField(eT, ee, "vertexShaderVariants", vT, vS, vN);
+                        for (uint32_t vi = 0; vb && vS > 0 && vi < vN; ++vi) {
+                            size_t ve = vb + (size_t)vi * vS;
+                            AmatVsVariantRaw v;
+                            if (fieldOffset(vT, "variant", o, f))           v.variant = rd32(ve + o);
+                            if (fieldOffset(vT, "vertexShaderIndex", o, f)) v.vertexShaderIndex = rd32(ve + o);
+                            eff.vertexShaderVariants.push_back(v);
+                        }
+                        pass.effects.push_back(std::move(eff));
+                    }
+                    tech.passes.push_back(std::move(pass));
+                }
+                out.techniques.push_back(std::move(tech));
+            }
+        }
+
+        if (out.shaders.empty()) out.error = "BGFX chunk carried no shaders";
+        return out;
+    }
+
+    // -----------------------------------------------------------------------
+    /// @brief Every geoset with its vertex buffer left undecoded.
+    ///
+    /// Same walk as ::extract's geometry pass, stopping before
+    /// `decodeVertices`. See ::GeosetRaw for why not decoding is the point.
+    // -----------------------------------------------------------------------
+    std::vector<GeosetRaw> extractGeosetsRaw() {
+        std::vector<GeosetRaw> out;
+        std::string root; uint16_t ver = 0;
+        size_t geomStart = findChunk("GEOM", &root, &ver);
+        if (!geomStart || root.empty()) return out;
+        size_t off; json fj;
+        if (!fieldOffset(root, "meshes", off, fj)) return out;
+        uint32_t count = 0;
+        size_t base = arrayAt(geomStart + off, count);
+        if (!base) return out;
+        std::string meshType = fj["element"].value("struct", std::string());
+
+        for (uint32_t i = 0; i < count; ++i) {
+            size_t meshStart = follow(base + (size_t)i * ptr_);
+            if (!meshStart) continue;
+            try {
+                out.push_back(parseGeosetRaw(meshType, meshStart));
+            } catch (const std::exception&) { /* skip a bad geoset, keep going */ }
+        }
+        return out;
+    }
+
 private:
+    // Reads one ModelMeshIndexDataV* into a 16-bit index vector.
+    std::vector<uint16_t> readIndexData(const std::string& idxType, size_t s) {
+        std::vector<uint16_t> idx;
+        size_t o; json f;
+        if (!fieldOffset(idxType, "indices", o, f)) return idx;
+        uint32_t n = 0; size_t b = arrayAt(s + o, n);
+        idx.reserve(n);
+        for (uint32_t i = 0; b && i < n; ++i) idx.push_back(rd16(b + 2u * i));
+        return idx;
+    }
+
+    GeosetRaw parseGeosetRaw(const std::string& meshType, size_t s) {
+        GeosetRaw g;
+        size_t off; json fj;
+        if (fieldOffset(meshType, "materialIndex", off, fj)) g.materialIndex = rd32(s + off);
+        if (fieldOffset(meshType, "minBound", off, fj)) for (int i=0;i<3;++i) g.minB[i]=rdf(s+off+4*i);
+        if (fieldOffset(meshType, "maxBound", off, fj)) for (int i=0;i<3;++i) g.maxB[i]=rdf(s+off+4*i);
+        if (fieldOffset(meshType, "boneBindings", off, fj)) {
+            uint32_t bc = 0; size_t bb = arrayAt(s + off, bc);
+            if (bc > 4096) bc = 4096;
+            for (uint32_t i = 0; bb && i < bc; ++i) g.boneBindings.push_back(rd64(bb + 8u * i));
+        }
+
+        if (!fieldOffset(meshType, "geometry", off, fj)) throw std::runtime_error("no geometry field");
+        size_t geo = follow(s + off);
+        if (!geo) throw std::runtime_error("null geometry");
+        std::string geoType = fj["target"].value("struct", std::string());
+
+        // verts: inline ModelMeshVertexDataV* { vertexCount, mesh: PackVertexType }
+        if (!fieldOffset(geoType, "verts", off, fj)) throw std::runtime_error("no verts");
+        std::string vType = fj.value("type", std::string());
+        size_t vs = geo + off, voff; json vfj;
+        if (fieldOffset(vType, "vertexCount", voff, vfj)) g.vertexCount = rd32(vs + voff);
+        if (!fieldOffset(vType, "mesh", voff, vfj)) throw std::runtime_error("no PackVertexType");
+        std::string pvt = vfj.value("type", std::string());
+        size_t ps = vs + voff, poff; json pfj;
+        if (fieldOffset(pvt, "fvf", poff, pfj)) g.fvf = rd32(ps + poff);
+        // `vertices` is array_ptr<byte>: the count is a BYTE LENGTH, not a
+        // vertex count.
+        if (fieldOffset(pvt, "vertices", poff, pfj)) {
+            uint32_t vbytes = 0;
+            size_t vbase = arrayAt(ps + poff, vbytes);
+            if (vbase && vbytes && vbase + vbytes <= n_)
+                g.vertexBytes.assign(d_ + vbase, d_ + vbase + vbytes);
+        }
+
+        if (fieldOffset(geoType, "indices", off, fj))
+            g.indices = readIndexData(fj.value("type", std::string()), geo + off);
+
+        if (fieldOffset(geoType, "lods", off, fj)) {
+            uint32_t lcount = 0;
+            size_t lbase = arrayAt(geo + off, lcount);
+            std::string lodElem = fj.contains("element") && fj["element"].is_object()
+                                      ? fj["element"].value("struct", std::string()) : std::string();
+            size_t lodStride = lodElem.empty() ? 0 : (size_t)typeSize(lodElem);
+            if (lbase && lodStride && lcount <= 16)
+                for (uint32_t k = 0; k < lcount; ++k)
+                    g.lodIndices.push_back(readIndexData(lodElem, lbase + (size_t)k * lodStride));
+        }
+        return g;
+    }
+
     const uint8_t* d_;
     size_t n_;
     const json& tpl_;
