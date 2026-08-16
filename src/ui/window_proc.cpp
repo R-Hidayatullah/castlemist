@@ -220,10 +220,17 @@ LRESULT CALLBACK BgfxWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
     case WM_MOUSEMOVE:
         if (g_app != nullptr && g_app->bgfx_dragging) {
             POINT cur{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-            // Negated so the model follows the cursor, matching ModelWndProc.
+            // cur - last, NOT last - cur. ModelWndProc negates both deltas
+            // because the Direct3D 11 renderer's camera sits on the other side
+            // of its lookAt convention; this view does not share it. Measured
+            // through this view's own matrices: a positive dyaw carries the
+            // face nearest the camera to the RIGHT, and a positive dpitch
+            // carries it DOWN, which is exactly a cursor moving right and down.
+            // Copying the negation from ModelWndProc inverted both axes and the
+            // model ran away from the mouse.
             castlemist::gw2bgfxview::orbit(
-                static_cast<float>(g_app->bgfx_drag_last.x - cur.x) * 0.01f,
-                static_cast<float>(g_app->bgfx_drag_last.y - cur.y) * 0.01f);
+                static_cast<float>(cur.x - g_app->bgfx_drag_last.x) * 0.01f,
+                static_cast<float>(cur.y - g_app->bgfx_drag_last.y) * 0.01f);
             g_app->bgfx_drag_last = cur;
             InvalidateRect(hwnd, nullptr, FALSE);
         }
