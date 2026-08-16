@@ -4,6 +4,7 @@
 #include "detail/app_state.h"
 
 #include "castlemist/core/text.h"
+#include "castlemist/render/gw2bgfx_view.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -87,6 +88,16 @@ void set_model_mode(castlemist::render::RenderMode mode) {
         return;
     }
     g_app->model_mode = mode;
+    // Full / Plain / Wireframe / Shader all belong to the Direct3D 11 renderer,
+    // so picking one has to bring its surface back. Without this the mode did
+    // change underneath, but the "Game 1:1" bgfx surface stayed on top of it
+    // and nothing appeared to happen -- the buttons looked dead.
+    if (g_app->bgfx_view_active) {
+        g_app->bgfx_view_active = false;
+        if (g_app->hwnd_mode_gw2bgfx != nullptr)
+            SendMessageW(g_app->hwnd_mode_gw2bgfx, BM_SETCHECK, BST_UNCHECKED, 0);
+        relayout();
+    }
     // The map scene needs its game materials built before GameShader can draw.
     if (mode == castlemist::render::RenderMode::GameShader && castlemist::render::scene_active())
         ensure_map_game_materials();
@@ -95,6 +106,12 @@ void set_model_mode(castlemist::render::RenderMode mode) {
 }
 
 void reset_model_view() {
+    // Reset whichever surface is actually on screen.
+    if (g_app != nullptr && g_app->bgfx_view_active) {
+        castlemist::gw2bgfxview::reset_view();
+        InvalidateRect(g_app->hwnd_model_bgfx, nullptr, FALSE);
+        return;
+    }
     castlemist::render::reset_view();
     InvalidateRect(g_app->hwnd_model, nullptr, FALSE);
 }

@@ -166,10 +166,24 @@ struct State {
 
     float centre[3] = {0, 0, 0};
     float radius = 1.0f;
+    /// Model -> render space (axis conversion + the per-model trim), WITHOUT
+    /// the trackball. `world` below is this with the rotation folded in.
+    float base[16];
     float world[16];
     float rotTrim[3] = {0, 0, 0};
 
-    float yaw = 0.9f, pitch = 0.4f, dist = 3.0f;
+    /// Trackball orientation, accumulated as a matrix.
+    ///
+    /// Not Euler yaw/pitch. With angles the camera's up vector has to be
+    /// derived from the pitch, and past +-90 deg it inverts: horizontal drags
+    /// suddenly spin the other way and the model appears to jump around. This
+    /// is the same model castlemist::render uses -- rotate the OBJECT by a
+    /// composed increment and leave the camera still -- so the two views
+    /// respond to the mouse identically, which is the point of having both.
+    float rot[16];
+    /// Camera distance as a multiple of the bounding radius, like
+    /// castlemist::render's g_dist, so zoom feels the same in both views.
+    float distMul = 3.0f;
 
     std::string status;
 };
@@ -212,10 +226,10 @@ void destroyDraws() {
     g.texByFileId.clear();
 }
 
-/// Model -> render space. GW2 authors Z-up; the camera is an ordinary Y-up
-/// orbit. Doing the change of basis once, in the world matrix, hands the shader
-/// geometry already in the renderer's space.
-void buildWorld() {
+/// Model -> render space. GW2 authors Z-up; the view is Y-up. Doing the change
+/// of basis once, in the world matrix, hands the shader geometry already in the
+/// renderer's space.
+void buildBase() {
     float axisFix[16];
     bx::mtxIdentity(axisFix);
     axisFix[0] = 1.0f; axisFix[1] = 0.0f; axisFix[2]  = 0.0f;  // e_x -> ( 1, 0, 0)
@@ -224,7 +238,20 @@ void buildWorld() {
 
     float trim[16];
     bx::mtxRotateXYZ(trim, bx::toRad(g.rotTrim[0]), bx::toRad(g.rotTrim[1]), bx::toRad(g.rotTrim[2]));
-    bx::mtxMul(g.world, trim, axisFix);
+    bx::mtxMul(g.base, trim, axisFix);
+}
+
+/// Folds the trackball into the world matrix, rotating about the model's own
+/// centre rather than the origin -- a model whose bounds sit far off origin
+/// (GW2 armour sits ~38 units below it) would otherwise swing around the scene
+/// instead of turning in place.
+void buildWorld() {
+    float toOrigin[16], back[16], tmp[16], spin[16];
+    bx::mtxTranslate(toOrigin, -g.centre[0], -g.centre[1], -g.centre[2]);
+    bx::mtxTranslate(back, g.centre[0], g.centre[1], g.centre[2]);
+    bx::mtxMul(tmp, toOrigin, g.rot);
+    bx::mtxMul(spin, tmp, back);
+    bx::mtxMul(g.world, g.base, spin);
 }
 
 } // namespace
@@ -273,7 +300,8 @@ bool initialize(HWND target_window) {
         g.texCube = bgfx::createTextureCube(1, false, 1, bgfx::TextureFormat::RGBA8, 0, cube);
     }
 
-    bx::mtxIdentity(g.world);
+    bx::mtxIdentity(g.rot);
+    buildBase();
     buildWorld();
     g.inited = true;
     g.status = "bgfx ready";
@@ -312,25 +340,32 @@ void clear_model() {
 bool has_model() { return !g.draws.empty(); }
 
 void orbit(float d_yaw, float d_pitch) {
-    g.yaw += d_yaw;
-    // No pitch clamp: the camera basis in render() is built from the angles, so
-    // the poles are ordinary values and the view rolls through them.
-    g.pitch += d_pitch;
+    // Compose the drag as a rotation applied AFTER the current orientation --
+    // the same free trackball castlemist::render::orbit uses. No clamped axis
+    // and no gimbal lock, so a drag means the same thing whichever way the
+    // model is already facing.
+    float ry[16], rx[16], inc[16], out[16];
+    bx::mtxRotateY(ry, d_yaw);
+    bx::mtxRotateX(rx, d_pitch);
+    bx::mtxMul(inc, ry, rx);
+    bx::mtxMul(out, g.rot, inc);
+    std::memcpy(g.rot, out, sizeof(out));
+    buildWorld();
 }
 
-void zoom(float factor) { g.dist = std::max(g.dist * factor, 0.001f); }
+void zoom(float factor) { g.distMul = std::clamp(g.distMul * factor, 0.2f, 20.0f); }
 
 void reset_view() {
-    g.yaw = 0.9f;
-    g.pitch = 0.4f;
-    g.dist = g.radius * 3.0f;
+    bx::mtxIdentity(g.rot);
+    g.distMul = 3.0f;
+    buildWorld();
 }
 
 void set_rotation_trim(float x_deg, float y_deg, float z_deg) {
     g.rotTrim[0] = x_deg;
     g.rotTrim[1] = y_deg;
     g.rotTrim[2] = z_deg;
-    if (g.inited) buildWorld();
+    if (g.inited) { buildBase(); buildWorld(); }
 }
 
 void rotation_trim(float out_deg[3]) {
@@ -381,10 +416,17 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
     for (int i = 0; i < 3; ++i) g.radius = std::max(g.radius, (hi[i] - lo[i]) * 0.5f);
     if (!(g.radius > 0.0f)) g.radius = 1.0f;
 
-    buildWorld();
-    const bx::Vec3 c = bx::mul(bx::Vec3(centreModel[0], centreModel[1], centreModel[2]), g.world);
+    // Centre is measured through `base` only -- the axis conversion and the
+    // trim -- because the trackball then rotates ABOUT that centre. Folding the
+    // rotation in first would make the pivot chase its own result.
+    buildBase();
+    const bx::Vec3 c = bx::mul(bx::Vec3(centreModel[0], centreModel[1], centreModel[2]), g.base);
     g.centre[0] = c.x; g.centre[1] = c.y; g.centre[2] = c.z;
-    g.dist = g.radius * 3.0f;
+    // A new model gets a fresh orientation; leaving the old trackball on would
+    // show the next model at whatever angle the last one was left at.
+    bx::mtxIdentity(g.rot);
+    g.distMul = 3.0f;
+    buildWorld();
 
     // Textures. base - 1: get_by_base_id returns a 1-based baseId, so reading
     // `base` lands on the next archive entry -- which parses as a neighbouring
@@ -533,23 +575,22 @@ void render() {
 
     if (g.draws.empty()) { bgfx::frame(); return; }
 
-    // Free orbit: the basis comes straight from yaw/pitch rather than from a
-    // fixed world up, so there is no pole to clamp against. `up` is the pitch
-    // derivative -- unit length everywhere, and it simply inverts past +-90 deg,
-    // rolling the view over.
-    const float cp = std::cos(g.pitch), sp = std::sin(g.pitch);
-    const float sy = std::sin(g.yaw), cy = std::cos(g.yaw);
-    const float dir[3] = {cp * sy, sp, cp * cy};
-    const float eye[3] = {g.centre[0] + g.dist * dir[0], g.centre[1] + g.dist * dir[1],
-                          g.centre[2] + g.dist * dir[2]};
-    const float up[3] = {-sp * sy, cp, -sp * cy};
+    // The camera does not move: it sits back along -Z with a plain +Y up, and
+    // the trackball turns the model instead (see State::rot). That is what
+    // castlemist::render does, and it is why the up vector can be a constant --
+    // there is no pole for it to flip across.
+    const float camDist = g.radius * g.distMul;
+    const float eye[3] = {g.centre[0], g.centre[1], g.centre[2] - camDist};
+    const float up[3] = {0.0f, 1.0f, 0.0f};
 
     float view[16], proj[16], viewProj[16];
     bx::mtxLookAt(view, bx::Vec3(eye[0], eye[1], eye[2]),
                   bx::Vec3(g.centre[0], g.centre[1], g.centre[2]), bx::Vec3(up[0], up[1], up[2]));
     // Near/far bracketed to the model so the depth buffer keeps its precision.
-    const float zn = std::max(g.dist - g.radius * 2.0f, g.radius * 0.02f);
-    const float zf = g.dist + g.radius * 4.0f;
+    // Generous on the far side: the trackball can swing a long model's far end
+    // well past the centre, and clipping it looks like geometry going missing.
+    const float zn = std::max(camDist - g.radius * 2.0f, g.radius * 0.02f);
+    const float zf = camDist + g.radius * 6.0f;
     const float aspect = float(g.width) / float(g.height > 0 ? g.height : 1);
     bx::mtxProj(proj, 60.0f, aspect, zn, zf, bgfx::getCaps()->homogeneousDepth);
     bx::mtxMul(viewProj, view, proj);

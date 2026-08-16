@@ -239,7 +239,19 @@ namespace
 // ---------------------------------------------------------------------------
 namespace
 {
-    float g_yaw = 0.9f, g_pitch = 0.4f, g_dist = 3.0f;
+    /// Trackball orientation, accumulated as a matrix rather than as Euler
+    /// angles.
+    ///
+    /// With yaw/pitch the camera's up vector has to be derived from the pitch,
+    /// and past +-90 deg it inverts: a horizontal drag suddenly spins the other
+    /// way, so a long drag reads as the model jumping around at random. Turning
+    /// the OBJECT by a composed increment and leaving the camera still has
+    /// neither a pole nor a gimbal, and it matches what castlemist's own
+    /// renderer does.
+    float g_rot[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    /// Camera distance as a multiple of the bounding radius.
+    float g_distMul = 3.0f;
+    bool g_rotDirty = true;
     POINT g_last{};
     bool g_dragging = false;
     bool g_quit = false;
@@ -291,19 +303,22 @@ namespace
             if (g_dragging)
             {
                 int x = LOWORD(l), y = HIWORD(l);
-                g_yaw += (x - g_last.x) * 0.01f;
-                g_pitch += (y - g_last.y) * 0.01f;
-                // No pitch clamp. The camera basis below is derived from yaw and
-                // pitch directly rather than from a fixed world up, so the poles
-                // are ordinary angles: the view rolls through them and keeps
-                // going. Clamping to +-1.5 rad was only there to stop mtxLookAt
-                // degenerating when the eye direction met its own up vector.
+                // Compose the drag as a rotation applied AFTER the current
+                // orientation. No clamped axis and no gimbal lock, so a drag
+                // means the same thing whichever way the model already faces.
+                float ry[16], rx[16], inc[16], out[16];
+                bx::mtxRotateY(ry, (x - g_last.x) * 0.01f);
+                bx::mtxRotateX(rx, (y - g_last.y) * 0.01f);
+                bx::mtxMul(inc, ry, rx);
+                bx::mtxMul(out, g_rot, inc);
+                std::memcpy(g_rot, out, sizeof(out));
+                g_rotDirty = true;
                 g_last = {x, y};
             }
             return 0;
         case WM_MOUSEWHEEL:
-            g_dist *= (GET_WHEEL_DELTA_WPARAM(w) > 0 ? 0.9f : 1.1f);
-            g_dist = std::max(g_dist, 0.05f);
+            g_distMul *= (GET_WHEEL_DELTA_WPARAM(w) > 0 ? 0.9f : 1.1f);
+            g_distMul = std::clamp(g_distMul, 0.2f, 20.0f);
             return 0;
         }
         return DefWindowProc(h, m, w, l);
@@ -436,7 +451,6 @@ int main(int argc, char **argv)
         radius = std::max(radius, (hi[i] - lo[i]) * 0.5f);
     if (!(radius > 0.0f))
         radius = 1.0f;
-    g_dist = radius * 3.0f;
 
     // --- model -> render space ---------------------------------------------
     // GW2 authors Z-up; the camera below is an ordinary Y-up orbit, which is
@@ -459,11 +473,20 @@ int main(int argc, char **argv)
     float trim[16];
     bx::mtxRotateXYZ(trim, bx::toRad(rotDeg[0]), bx::toRad(rotDeg[1]), bx::toRad(rotDeg[2]));
 
+    // `base` is model -> render space. The trackball is folded in per frame,
+    // rotating about the model's own centre rather than the origin: a model
+    // whose bounds sit far off origin would otherwise swing around the scene
+    // instead of turning in place.
+    float base[16];
+    bx::mtxMul(base, trim, axisFix);
     float world[16];
-    bx::mtxMul(world, trim, axisFix);
+    std::memcpy(world, base, sizeof(world));
 
+    // Measured through `base` only: the trackball then rotates ABOUT this
+    // centre, so folding the rotation in first would make the pivot chase its
+    // own result.
     const bx::Vec3 centreV =
-        bx::mul(bx::Vec3(centreModel[0], centreModel[1], centreModel[2]), world);
+        bx::mul(bx::Vec3(centreModel[0], centreModel[1], centreModel[2]), base);
     const float centre[3] = {centreV.x, centreV.y, centreV.z};
     std::fprintf(stderr, "[orient] rot=(%g,%g,%g) deg, centre model=(%g,%g,%g) -> render=(%g,%g,%g)"
                          " radius=%g\n",
@@ -715,21 +738,26 @@ int main(int argc, char **argv)
             g_sizeDirty = false;
         }
 
-        // Free orbit. The basis is built straight from yaw and pitch instead of
-        // being recovered from a fixed world up, so there is no pole to clamp
-        // against: `up` is the pitch derivative, stays unit length everywhere,
-        // and simply inverts as pitch passes +-90 deg -- the view rolls over and
-        // keeps turning. Y-up here, because the model was already rotated into
-        // this space by `world` above.
-        const float cp = std::cos(g_pitch), sp = std::sin(g_pitch);
-        const float sy = std::sin(g_yaw), cy = std::cos(g_yaw);
-        const float dir[3] = {cp * sy, sp, cp * cy};
-        const float eye[3] = {
-            centre[0] + g_dist * dir[0],
-            centre[1] + g_dist * dir[1],
-            centre[2] + g_dist * dir[2],
-        };
-        const float up[3] = {-sp * sy, cp, -sp * cy};
+        // Fold the trackball into the world matrix, rotating about the model's
+        // own centre.
+        if (g_rotDirty)
+        {
+            float toOrigin[16], back[16], tmp[16], spin[16];
+            bx::mtxTranslate(toOrigin, -centre[0], -centre[1], -centre[2]);
+            bx::mtxTranslate(back, centre[0], centre[1], centre[2]);
+            bx::mtxMul(tmp, toOrigin, g_rot);
+            bx::mtxMul(spin, tmp, back);
+            bx::mtxMul(world, base, spin);
+            g_rotDirty = false;
+        }
+
+        // The camera does not move: it sits back along -Z with a constant +Y
+        // up, and the trackball turns the model instead. That is why `up` can
+        // be a constant -- there is no pole for it to flip across, which is
+        // what made a long drag look like the model was jumping about.
+        const float camDist = radius * g_distMul;
+        const float eye[3] = {centre[0], centre[1], centre[2] - camDist};
+        const float up[3] = {0.0f, 1.0f, 0.0f};
 
         float view[16], proj[16], viewProj[16];
         bx::mtxLookAt(view, bx::Vec3(eye[0], eye[1], eye[2]),
@@ -737,8 +765,10 @@ int main(int argc, char **argv)
                       bx::Vec3(up[0], up[1], up[2]));
         // Near/far bracketed to the model so the depth buffer keeps its
         // precision; a 1:2000 ratio crushes 24-bit depth into z-fighting.
-        const float zn = std::max(g_dist - radius * 2.0f, radius * 0.02f);
-        const float zf = g_dist + radius * 4.0f;
+        // Generous far plane: the trackball can swing a long model's far end
+        // well past the centre, and clipping it looks like missing geometry.
+        const float zn = std::max(camDist - radius * 2.0f, radius * 0.02f);
+        const float zf = camDist + radius * 6.0f;
         const float aspect = float(g_width) / float(g_height > 0 ? g_height : 1);
         bx::mtxProj(proj, 60.0f, aspect, zn, zf, bgfx::getCaps()->homogeneousDepth);
         bx::mtxMul(viewProj, view, proj);

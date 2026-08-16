@@ -232,6 +232,13 @@ LRESULT CALLBACK BgfxWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         if (g_app != nullptr) g_app->bgfx_dragging = false;
         ReleaseCapture();
         return 0;
+    case WM_CAPTURECHANGED:
+        // Capture can be taken away without a WM_LBUTTONUP ever arriving (an
+        // alt-tab mid-drag, a modal dialog). Without this the drag flag stays
+        // set and every later mouse move keeps spinning the model with no
+        // button held.
+        if (g_app != nullptr) g_app->bgfx_dragging = false;
+        return 0;
     case WM_RBUTTONDOWN:
         // Right-click flips the model 180 deg about X. Characters' armour is
         // stored in a bind-pose space whose root rotation lives in a skeleton
