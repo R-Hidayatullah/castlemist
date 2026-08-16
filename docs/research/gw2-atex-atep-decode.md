@@ -7,6 +7,14 @@ metadata:
   originSessionId: bd66fef5-a7e9-4fd2-b271-b282e18fbb85
 ---
 
+> **Addresses in this note are from an older client build and no longer resolve
+> (checked 2026-08-16).** The conclusions below were re-verified against the current
+> binary and stand — including the write-only container tag. Current map:
+> [[gw2-cmp-img-symbol-map]] (`ImgAtex_Decode` @ `0x140B86B70`, `ImgFmt_Flags` @
+> `0x141C80410`, `ImgFmt_InfoTable` @ `0x141C801A0`). Two corrections: the probe chain
+> has **nine** loaders, not seven, and `byte_141C86390` has no counterpart in the
+> current map.
+
 GW2 ImgAtex decoder = `ImgAtex_Decode` (sub_140B83040, `Arena\Engine\Gr\Img\ImgAtex.cpp`), a streaming state machine driven by `ImgDecode.cpp`/`sub_140B14CB0`. Magic detector = `ImgAtex_IsAtexMagic` (sub_140B85760): six accepted signatures, masked with `& 0xFFFFFFF9` — **ATEX, ATTX, ATEC, ATEP, ATEU, ATET**.
 
 **Key finding (IDA-verified, decisive for castlemist ATEP):** the per-filetype "magic number" `v22` (ATEX/ATTX=0, ATEC=1, ATEP=2, ATEU=4, ATET=0x20; plus `(v19&4)?0x10` and `(v19&2)*4` bits that are always 0 for the 'A'=0x41 first byte) is stored at **decoder+0x4C** (`(_DWORD*)a1+19`) but is **WRITE-ONLY**: touched exactly twice in the whole pipeline, both writes (compute in ImgAtex_Decode, `=0` reset in ImgDecode). Zero reads — not in the decoder, not in `IGrImageLoadAlloc` (GrImage.cpp / sub_140A7AE30), not in any of the 7 image loaders. => **ATEP pixel data decodes byte-identically to ATEX**; there is NO premultiplied-alpha or any container-driven pixel transform. The tag is engine metadata (texture-usage hint) only.

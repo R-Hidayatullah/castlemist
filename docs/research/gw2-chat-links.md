@@ -7,6 +7,12 @@ metadata:
   originSessionId: d374b61e-e94e-4b75-b1f8-a27cbe322295
 ---
 
+> **Addresses here are from an older build and no longer resolve (checked 2026-08-16).**
+> Current symbols: [[gw2-chatlink-token-hash-map]]. The System-1 analysis below is
+> confirmed and extended — the decode side turns out to be a flat 17-entry function table
+> (`ChatLink_DecoderTable`) indexed **directly by the header byte**, and headers 0x0E,
+> 0x0F and 0x10 exist beyond the 0x0D documented here.
+
 Chat link = `[&` + base64(payload) + `]`. Two encoding systems in the client:
 
 **Base64 substrate** (`Arena\Services\Base64\Base64.cpp`, standard alphabet `ABC…+/` at 0x14205f6a0):

@@ -8,6 +8,13 @@ metadata:
   modified: 2026-07-26T04:11:33.017Z
 ---
 
+> **Addresses in this note are from an older client build and no longer resolve
+> (checked 2026-08-16).** The finding below is correct and was re-confirmed in the
+> current binary; only the `sub_14…` labels rotted. In particular `sub_140D9F8C0` is
+> *not* Method 0 inflate — it is inside a **compressor**. Current map:
+> [[gw2-cmp-img-symbol-map]] (`Cmp_DecompressMethod0` @ `0x140DA27F0`,
+> `CmpHuff_BuildDecodeTable` @ `0x140DA9730`).
+
 **Root cause of the "huffman decode failed (no matching code)" entries (fixed 2026-07-26).**
 
 In `cmp_decompress_method0.hpp`, a Huffman table whose RLE code-length block decodes to **all zeros** produced an empty decode table, and `HuffTable::decode()` threw. That is legal input, not corruption: `CmpHuff.cpp` (`sub_140DA6800` in Gw2-64) patches it explicitly —

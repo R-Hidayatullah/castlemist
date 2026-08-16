@@ -23,6 +23,11 @@ names an address, that is `Gw2-64.exe` with ASLR disabled, imagebase
 | [gw2index-tool.md](gw2index-tool.md) | what the index records and why compression truth has to be verified rather than read off the flag |
 | [gw2mcp-server.md](gw2mcp-server.md) | the CLI/MCP split over the dat tooling |
 | [curated-test-ids.txt](curated-test-ids.txt) | known-good baseIds per format, the fixtures the `dat` test suite asserts against |
+| [gw2-ida-naming-coverage.md](gw2-ida-naming-coverage.md) | how far the IDB naming pass got, what was deliberately left, and the prioritised worklist. Read before starting more RE |
+| [gw2-cmp-img-symbol-map.md](gw2-cmp-img-symbol-map.md) | named IDA symbols for the Compress and image-decode clusters, recovered from the binary's embedded Perforce source paths. **The addresses in the older notes are from a previous build and no longer resolve** |
+| [gw2-decode-walkthrough.md](gw2-decode-walkthrough.md) | plain-English tour of both stages, dat entry to pixels. Start here if you are not a reverse engineer |
+| [gw2-chatlink-token-hash-map.md](gw2-chatlink-token-hash-map.md) | named symbols for chat links (the full 17-entry decoder table), Base64, CRC-32/32C and Murmur2A. **Token has two schemes, not one** — 32-bit base-23 and a 64-bit 5-bit-per-char packing |
+| [gw2-strs-crypt-symbol-map.md](gw2-strs-crypt-symbol-map.md) | named symbols for the strs text pipeline: RC4, the 8→20 key expansion, the bit-unpack decoder, the runtime key map. RC4 is symmetric, so there is no separate encrypt function — and both retail hook signatures still match |
 
 ## Textures and images
 
@@ -35,6 +40,7 @@ names an address, that is `Gw2-64.exe` with ASLR disabled, imagebase
 
 | note | what it settles |
 | ---- | --------------- |
+| [gw2-render-asset-pipeline.md](gw2-render-asset-pipeline.md) | how shaders, models and animation load. **58 shader packages are baked into the exe; shaderId 58 loads an AMAT from the dat** — both paths traced to the branch. Also the definitive GrFvf → bgfx::VertexLayout builder |
 | [vertex-fvf.md](vertex-fvf.md) | GrFvf, the flexible vertex format, and how a vertex declaration is read |
 | [gw2-skeleton.md](gw2-skeleton.md) | bind pose from SKEL (inverse of the inverse-world), embedded animation, GPU skinning |
 | [gw2-granny-64bit.md](gw2-granny-64bit.md) | granny blobs are 32- **or** 64-bit. Read a 64-bit one as 32-bit and you get zero-length arrays, not an error -- animations silently came out 0.0 s long |

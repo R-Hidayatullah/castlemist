@@ -7,6 +7,15 @@ metadata:
   originSessionId: de0675a5-d656-4555-bbca-555b6abed976
 ---
 
+> **Addresses here are from an older build and no longer resolve (checked 2026-08-16).**
+> The findings stand; current symbols are in [[gw2-chatlink-token-hash-map]]
+> (`Token_Decode32` @ `0x140E46CF0`, `HashMurmur2A_Add/End` @ `0x140C1A2F0`/`0x140C1C880`).
+>
+> **One addition:** Token.cpp has a **second, 64-bit scheme** this note does not cover —
+> `Token_Decode64`, 5 bits per character over the low 60 bits plus a 2-digit suffix from
+> the top nibble. That is the `token64` in `ModelTextureDataV65`, recorded below as
+> "per-texture asset id, NOT a role name". It *is* decodable, just not with base-23.
+
 **IDA-VERIFIED (2026-07-12, Gw2-64-disable-aslr.exe @0x140000000): the bgfx uniform-name hash is `bx::HashMurmur2A` with seed 0.** Proven at instruction level, not assumed.
 
 - `sub_140C167D0` (add/update) + `sub_140C18D60` (end/finalize) = `bx::HashMurmur2A`. Constant `1540483477`=`0x5BD1E995` (MurmurHash2 `m`), `r=24`; per-4-byte block `mmix(h,k)= k*=m;k^=k>>24;k*=m;h*=m;h^=k`; finalize `mmix(h,tail);mmix(h,size);h^=h>>13;h*=m;h^=h>>15`. State {m_hash@+0, m_size@+4, m_tail@+8, m_count@+12}. Caller zeroes m_hash → **seed=0**. Matches bx source `include/bx/inline/hash.inl` begin() exactly. Prior notes wrongly tried Murmur3/one-shot — it is the **streaming "2A"** variant. Python impl: `scratchpad/murmur2a.py`.

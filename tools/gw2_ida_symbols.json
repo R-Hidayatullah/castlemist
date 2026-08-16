@@ -1,0 +1,2173 @@
+{
+ "imagebase": 5368709120,
+ "functions": {
+  "0x140d9d7b0": {
+   "name": "Cmp_Compress",
+   "comment": "Arena\\Services\\Compress\\CmpApi.cpp:38  CmpCompress()\n(outputData, outputBytes*, sourceData, sourceBytes, oldSourceData, oldSourceBytes, flags, methodOut*)\nPicks Method1 (Cmp_CompressMethod1) when oldSourceData is present and sizes are within 2x,\nelse Method0 (Cmp_CompressMethod0). Writes chosen method into *methodOut.\nFalls back to a raw memcpy when the compressed result would exceed sourceBytes.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d9d9f0": {
+   "name": "Cmp_Decompress",
+   "comment": "Arena\\Services\\Compress\\CmpApi.cpp:111  CmpDecompress()\n(outputData, outputBytes, compressedData, compressedBytes, oldSourceData, oldSourceBytes)\nReads a 32-bit LE word stream; top 4 bits of the first word select the method:\n  0 -> Cmp_DecompressMethod0 (2 Huffman tables per block, self-contained)\n  1 -> Cmp_DecompressMethod1 (3 tables per block, delta vs oldSourceData)\nAnything else -> \"CmpDecompress(): corrupt data, Method = %d\" and returns 0.\nThis is the entry point used for every compressed Gw2.dat MFT entry.",
+   "lvars": {
+    "0": "outputData",
+    "1": "outputBytes",
+    "2": "compressedData",
+    "3": "compressedBytes",
+    "4": "oldSourceData",
+    "5": "oldSourceBytes",
+    "6": "compressedBytesCopy",
+    "8": "outputBytesCopy",
+    "10": "streamEnd",
+    "11": "firstWord",
+    "13": "firstWordCopy",
+    "14": "firstWordShifted",
+    "15": "method",
+    "16": "secondWord",
+    "17": "secondWordTopBits",
+    "18": "decodeOk",
+    "19": "bs",
+    "20": "bs_bitsAvailable",
+    "21": "bs_bitBuffer",
+    "22": "bs_bitBufferNext"
+   },
+   "labels": {
+    "27": "check_decodeResult",
+    "28": "fail_corruptData"
+   }
+  },
+  "0x140d9e970": {
+   "name": "Cmp_CompressMethod1",
+   "comment": "",
+   "lvars": {
+    "41": "nn",
+    "47": "kk",
+    "48": "mm",
+    "53": "jj",
+    "59": "n",
+    "60": "ii",
+    "67": "m"
+   },
+   "labels": {}
+  },
+  "0x140da1220": {
+   "name": "Cmp_CompressMethod0",
+   "comment": "",
+   "lvars": {
+    "18": "mm",
+    "29": "jj",
+    "30": "kk",
+    "35": "n",
+    "36": "ii",
+    "42": "m",
+    "134": "nn"
+   },
+   "labels": {}
+  },
+  "0x140da0650": {
+   "name": "Cmp_DecompressMethod1",
+   "comment": "Arena\\Services\\Compress\\CmpDict.cpp  Method 1 inflate (delta vs reference buffer)\n(outputData, outputBytes, bitstream, oldSourceData, oldSourceBytes)\nSame bit layout as Method0 but builds THREE tables per block; the extra table carries the\nsigned-delta / match-class selector against oldSourceData. Shares Cmp_DistBase.",
+   "lvars": {
+    "0": "outputData",
+    "1": "outputBytes",
+    "2": "bs",
+    "3": "oldSourceData",
+    "4": "oldSourceBytes",
+    "6": "hdrBitBuffer",
+    "7": "bitsAvailablePtr",
+    "8": "hdrBitBufferNext",
+    "9": "hdrBitsAvailable",
+    "10": "hdrBitsShifted",
+    "11": "hdrBitsAfter",
+    "12": "hdrMinMatchLen",
+    "13": "hdrNextWord",
+    "29": "outPtr",
+    "63": "matchLen",
+    "65": "distSymbolA",
+    "72": "matchDistA",
+    "79": "refOffset",
+    "95": "distSymbolB",
+    "103": "matchDistB",
+    "117": "outEnd",
+    "118": "oldSourceBase",
+    "121": "refTable",
+    "123": "spillArray",
+    "125": "distTable",
+    "129": "litLenTable"
+   },
+   "labels": {
+    "7": "header_readMethodBits",
+    "13": "block_buildTables",
+    "29": "sym_refillBits",
+    "43": "lenExtra_storeBuffer",
+    "52": "dist_consumeBits",
+    "91": "ref_lookupSymbol",
+    "99": "ref_consumeBits",
+    "100": "ref_checkRefill",
+    "119": "block_next",
+    "120": "cleanup_and_return",
+    "128": "cleanup_and_fail"
+   }
+  },
+  "0x140da27f0": {
+   "name": "Cmp_DecompressMethod0",
+   "comment": "Arena\\Services\\Compress\\CmpDict.cpp  Method 0 inflate (LZ77 + Huffman)\n(outputData, outputBytes, bitstream)\nHeader: 4 bits -> minMatchLen-1 ; 4 bits -> (blockSymbolCount>>12)-1  (block <= 4096 symbols)\nPer block, builds TWO tables via CmpHuff_BuildDecodeTable:\n  litLenTable  symbol <  0x100 -> literal byte\n               symbol >= 0x100 -> match, len  = Cmp_LenBase[s-256]  + read(Cmp_LenExtraBits[s-256])  + minMatchLen\n  distTable    dist = Cmp_DistBase[d] + read(Cmp_DistExtraBits[d]); copy source is outPtr-(dist+1)\nReturns 0 on overrun of either outEnd or the output window.",
+   "lvars": {
+    "0": "outputData",
+    "1": "outputBytes",
+    "2": "bs",
+    "3": "hdrBitBuffer",
+    "5": "hdrBitBufferNext",
+    "6": "hdrBitBufferCopy",
+    "7": "hdrBitsAvailable",
+    "8": "hdrBitsShifted",
+    "9": "minMatchLenMinus1",
+    "10": "hdrBitsAvailableAfter",
+    "11": "hdrBitBufferAfter",
+    "12": "hdrStreamPtr",
+    "13": "hdrNextWord",
+    "14": "hdrRefilled",
+    "15": "outEnd",
+    "16": "minMatchLen",
+    "17": "outPtr",
+    "18": "blkBitBuffer",
+    "19": "blkBitBufferNext",
+    "20": "blkBitsAvailable",
+    "21": "blkBitsShifted",
+    "22": "blkBitsAvailableAfter",
+    "23": "blockSizeMinus1",
+    "24": "blkBitsAvailableNew",
+    "25": "blkBitBufferAfter",
+    "26": "blkStreamPtr",
+    "27": "blkNextWord",
+    "28": "blockSymbolCount",
+    "29": "litLenCurrentBits",
+    "30": "litLenHashSlot",
+    "31": "codeBits",
+    "32": "symbol",
+    "33": "litLenOverflowScan",
+    "34": "litLenSpillIndex",
+    "35": "bitsAvailBeforeSym",
+    "36": "bitsAvailAfterSym",
+    "37": "symStreamPtr",
+    "38": "symNextWord",
+    "39": "lenCodeIndex",
+    "40": "lenExtraBits",
+    "41": "matchLen",
+    "42": "lenExtraCurrentBits",
+    "43": "lenExtraBufferNext",
+    "44": "lenExtraShifted",
+    "45": "lenExtraNewBuffer",
+    "46": "lenExtraStreamPtr",
+    "47": "lenExtraNextWord",
+    "48": "lenExtraRefillShift",
+    "49": "distCurrentBits",
+    "50": "matchLenTotal",
+    "51": "distHashSlot",
+    "52": "distCodeBits",
+    "53": "distSymbol",
+    "54": "distOverflowScan",
+    "55": "distSpillIndex",
+    "56": "bitsAvailAfterDist",
+    "57": "distStreamPtr",
+    "58": "distNextWord",
+    "59": "distExtraBits",
+    "60": "matchDist",
+    "61": "distExtraBufferNext",
+    "62": "distExtraShifted",
+    "63": "distExtraStreamPtr",
+    "64": "distExtraNextWord",
+    "65": "copySrc",
+    "66": "copiedByte",
+    "68": "boundsCheckIndex",
+    "69": "minMatchLen_s",
+    "70": "blockSymbolsLeft",
+    "71": "outEnd_s",
+    "72": "outputBase",
+    "73": "streamEndPtr",
+    "74": "distTable",
+    "75": "distOverflow",
+    "76": "distSpillArray",
+    "77": "distSpillCount",
+    "78": "litLenTable",
+    "79": "litLenOverflow",
+    "80": "litLenSpillArray",
+    "81": "litLenSpillCount"
+   },
+   "labels": {
+    "7": "block_buildTables",
+    "23": "sym_consumeBits",
+    "37": "lenExtra_storeBuffer",
+    "46": "dist_consumeBits",
+    "65": "block_next",
+    "66": "cleanup_and_return"
+   }
+  },
+  "0x140d9e8f0": {
+   "name": "Cmp_EncSymLutLookup",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140da9730": {
+   "name": "CmpHuff_BuildDecodeTable",
+   "comment": "Arena\\Services\\Compress\\CmpHuff.cpp  BuildDecodeTable  (asserts at :469 :504 :511)\n(table, bitstream) -> table\nReads an RLE'd code-length block using the bootstrap prefix code\n(CmpHuff_BootRangeTbl thresholds -> CmpHuff_BootSymTbl, packed as (runLength<<5)|codeLength).\nEmits a 256-entry hash table at table+0 ({codeBits, symbol} pairs, 8 bytes each),\nan overflow list at table+2048, and a spill Array at table+2336.\n\n*** DEGENERATE TABLE (important, legal input - do NOT treat as corruption) ***\nIf the length block decodes to all zeros (assignedCount == 0) the alphabet collapses to\n    headByCodeLen[0] = totalSymbolCount - 1 ; countByCodeLen[0] = 1\ni.e. the LAST symbol, carried in ZERO bits.  Substituting symbol 0 instead is wrong: it\nhappens to work when Cmp_DistExtraBits[0]==0 but desyncs whenever\nCmp_DistExtraBits[total-1]!=0, because the symbol also selects how many EXTRA bits follow.\nAlmost always the distance table of a highly repetitive payload.",
+   "lvars": {
+    "0": "table",
+    "1": "bs",
+    "4": "allocTagA",
+    "5": "allocTagB",
+    "6": "hdrBitBuffer",
+    "7": "hdrBitBufferNext",
+    "8": "hdrBitsAvailable",
+    "9": "hdrBitsShifted",
+    "10": "totalSymbolCount",
+    "11": "hdrBitsAvailableAfter",
+    "12": "hdrBitBufferAfter",
+    "13": "hdrStreamPtr",
+    "14": "hdrNextWord",
+    "15": "hdrRefilled",
+    "16": "scratchBytes",
+    "17": "scratchBytesClamped",
+    "18": "scratchBytesAligned",
+    "19": "scratchA",
+    "20": "scratchB",
+    "21": "assignedCount",
+    "22": "nextSymbolPtr",
+    "23": "symbol",
+    "24": "currentBits",
+    "25": "bootRangePtr",
+    "26": "bootCodeBits",
+    "27": "packedRunLen",
+    "28": "bitsAvailBefore",
+    "29": "bitsAvailAfter",
+    "30": "streamPtr",
+    "31": "nextWord",
+    "32": "runLength",
+    "33": "codeLength",
+    "34": "unusedTemp",
+    "35": "processed",
+    "36": "codeLenIter",
+    "37": "symbolInBucket",
+    "38": "shiftToHashWidth",
+    "39": "codesAtThisLen",
+    "40": "slotsToFill",
+    "41": "hashSlotBase",
+    "42": "hashSlot",
+    "43": "symbolCountFinal",
+    "44": "nextSymbolTable",
+    "45": "bucketHeadPtr",
+    "47": "cleanupSpillPtrA",
+    "48": "cleanupSpillPtrB",
+    "49": "spillIndex",
+    "50": "overflowCount",
+    "51": "longCodeSymbol",
+    "52": "spillIndexSnapshot",
+    "53": "codeSnapshot",
+    "54": "spillWriteIndex",
+    "55": "overflowWriteIndex",
+    "56": "overflowEntry",
+    "57": "cleanupSpillPtrC",
+    "59": "assignedCount_s",
+    "60": "savedShiftOrIndex",
+    "61": "processed_s",
+    "62": "nextSymbol_s",
+    "63": "savedCodesAtThisLen",
+    "64": "totalSymbolCount_s",
+    "65": "headByCodeLen",
+    "66": "countByCodeLen"
+   },
+   "labels": {
+    "18": "boot_consumeBits",
+    "28": "lengths_done",
+    "44": "nextCodeLen_short",
+    "67": "nextCodeLen_long"
+   }
+  },
+  "0x140da9fc0": {
+   "name": "CmpHuff_BuildCanonicalCodes",
+   "comment": "Arena\\Services\\Compress\\CmpHuff.cpp  encoder-side canonical code assignment.\nBuckets symbols by code length (31 buckets), quicksorts each bucket, then walks\nlengths 1..31 assigning codes (code = 2*code+1 per level). Not used by the decode path.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140da9da0": {
+   "name": "CmpHuff_ComputeCodeLengthHistogram",
+   "comment": "Arena\\Services\\Compress\\CmpHuff.cpp:244  build the Huffman tree and count how many\nsymbols end up at each code length.\n  (symbolCount, sortedWeights, groupCountOut[49])\nRuns the package/merge over the weight-sorted symbols, walks the resulting tree, and\nincrements groupCount[bitLength] per leaf. Then LENGTH-LIMITS to 31 bits: while any\ngroup above 31 is populated it moves 2 symbols down a level and rebalances\n(groupCount[len]-=2; groupCount[31]++; groupCount[j+1]+=2; groupCount[j]--).\nAsserts bitCount < MAX_POSSIBLE_BITS (48) and, at the end, !groupCount[0].\nSingle-symbol alphabets short-circuit: groupCount[0] = symbolCount, rest zeroed.",
+   "lvars": {
+    "0": "symbolCount",
+    "1": "sortedWeights",
+    "2": "groupCount",
+    "13": "nodeIndex",
+    "14": "nodeStack",
+    "15": "heapCursor",
+    "16": "treeNode",
+    "18": "leafCursor",
+    "22": "bitLength",
+    "24": "level",
+    "25": "groupSlot"
+   },
+   "labels": {}
+  },
+  "0x140daa430": {
+   "name": "CmpHuff_WriteRunLengthCode",
+   "comment": "CmpHuff.cpp:158  emit ONE (runLength, codeLength) pair as a bootstrap prefix code.\n  (bitstream, runLength <= 7, codeLength <= 31)\nIndex = (runLength << 5) | codeLength, then:\n  bits  = CmpHuff_BootSymTbl[256 + index]\n  value = CmpHuff_BootSymTbl[512 + index]\nand pushes `bits` of `value` into the bitstream rack.",
+   "lvars": {
+    "0": "bitstream",
+    "1": "runLength",
+    "2": "codeLength",
+    "6": "tableIndex",
+    "7": "codeBits",
+    "8": "codeValue",
+    "10": "bitsLeft"
+   },
+   "labels": {}
+  },
+  "0x140daa550": {
+   "name": "CmpHuff_SortSymbolsByWeight",
+   "comment": "CmpHuff.cpp  order symbols for tree building.\n  (pSymbolCount, weights, symbolIndices, sortedWeightsOut)\nFills symbolIndices with 0..count-1, quicksorts them by weights[symbol] DESCENDING with\nthe symbol index as tie-break (so the order is deterministic), writes the sorted weights\nout, then trims trailing zero-weight entries and updates *pSymbolCount.",
+   "lvars": {
+    "0": "pSymbolCount",
+    "1": "weights",
+    "2": "symbolIndices",
+    "3": "sortedWeightsOut",
+    "11": "stackDepth",
+    "12": "lo",
+    "13": "hi",
+    "14": "scanLo",
+    "17": "scanHi",
+    "35": "sortStack"
+   },
+   "labels": {}
+  },
+  "0x140daa7a0": {
+   "name": "CmpHuff_WriteCodeLengthBlock",
+   "comment": "CmpHuff.cpp:158  emit the RLE'd code-length table into the bitstream.\n  (symbolCount, symbolIndices, groupCount, bitstream)\nWrites symbolCount as 16 raw bits, rebuilds a per-symbol codeLength array from\ngroupCount + symbolIndices, then walks it backwards emitting (runLength, codeLength)\npairs via CmpHuff_WriteRunLengthCode. Runs are capped at 7 (assert count <= 7).\nThis is the exact inverse of the block CmpHuff_BuildDecodeTable reads.",
+   "lvars": {
+    "0": "symbolCount",
+    "1": "symbolIndices",
+    "2": "groupCount",
+    "3": "bitstream",
+    "17": "runLength",
+    "18": "symbolIndex",
+    "19": "codeLenPtr",
+    "20": "codeLength",
+    "23": "codeBits",
+    "24": "codeValue",
+    "27": "codeLengths"
+   },
+   "labels": {}
+  },
+  "0x140b86b70": {
+   "name": "ImgAtex_Decode",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgAtex.cpp  ImgAtex_Decode - ATEX-family texture decoder.\n\nHOW TO READ THIS FUNCTION\nIt is a RESUMABLE STATE MACHINE, not a straight-line decoder. The caller feeds it\nbytes as they arrive off disk; each entry runs `switch (state)` (cases 0..13), consumes\nwhat it can, saves progress back into `decoder`, and returns. `savedState`, `savedMipLevel`\nand `savedBlockIndex` are the resume point. Partial words that straddle a chunk boundary\nare parked in spillWord / spillBits / spillByteCount.\n\nFlow:\n  1. read 4-byte container magic  -> containerMagic (ATEX ATTX ATEC ATEP ATEU ATET)\n  2. read 4-byte pixel fourCC     -> formatFourCC   -> grFormat (GR_FORMAT enum)\n  3. read width and height        -> imageWidth / imageHeight\n  4. for each mip level: read the per-mip flags, then run the fill passes\n\ndecoder-> FIELD MAP (offsets from the decoder pointer)\n  +0x00  input pointer               +0x28  per-level output pointer array\n  +0x08  input bytes available       +0x30  bytes consumed so far\n  +0x0C  total file size             +0x38  image width\n  +0x10  target platform             +0x3C  image height\n  +0x44  grFormat (GR_FORMAT enum)   +0x58  detail (private decoder state)\n  +0x4C  containerTag  <-- WRITE-ONLY, see note below\n  +0x60  fileType (0=ATEX 1=DDS 2=other)\n  +0x70..+0x7C  spill state for partial words across chunk boundaries\n  +0x80  block width     +0x88  level byte size   +0x8C  blocks across\n  +0x90  bits per pixel  +0x94  current mip level\n\nfourCC -> GR_FORMAT (read straight off the switch in this function)\n  DXT1=22 DXT2=23 DXT3=24 DXT4=25 DXT5=26 DXTA=27 DXTL=28 DXTN=29\n  3DCX=30 BC5X=31 BC7X=32 ; uncompressed 11CU..39CU = 2..21 ; GR_FORMATS = 38\n\nTHE CONTAINER TAG IS WRITE-ONLY\ncontainerTag (ATEC=1 ATEP=2 ATEU=4 ATET=0x20) is computed here and stored at +0x4C,\nand that is the ONLY place it is ever touched. Nothing reads it back - not this\nfunction, not the loaders, not the image allocator. So ATEP decodes byte-for-byte\nidentically to ATEX. There is no premultiplied-alpha step and no other\ncontainer-driven pixel transform. If a .atep looks wrong, suspect the VIEWER\nignoring alpha, not this decoder.\n\nWHAT ACTUALLY CHANGES THE PIXELS\nOnly two things: the pixel fourCC above, and the per-mip flags dword -\n  0x1 / 0x2 / 0x4 / 0x8  gate the RLE constant-fill passes\n  0x10                   256x256 terrain border mirror (ImgAtex_MirrorTerrainBorders)\n  0x200                  no block bitmap, mip is stored raw\n\nNOTE ON VARIABLE NAMES: the header-parse and per-mip state variables are named.\nThe ~245 short-lived register temporaries inside the fill passes are left as vNN -\nthey are single-use arithmetic scratch, and naming them would be guesswork.",
+   "lvars": {
+    "0": "decoder",
+    "2": "detail",
+    "4": "bytesConsumed",
+    "6": "inputBytesLeft",
+    "8": "spillWord",
+    "9": "spillBits",
+    "10": "spillByteCount",
+    "11": "headerBytesBuffered",
+    "12": "state",
+    "13": "isLittleEndianTarget",
+    "20": "containerMagic",
+    "22": "containerTag",
+    "26": "formatFourCC",
+    "29": "BitCount",
+    "30": "grFormat",
+    "31": "BlockDims",
+    "32": "packedDims",
+    "34": "imageWidth",
+    "38": "imageHeight",
+    "45": "mipLevel",
+    "46": "mipWidth",
+    "47": "blockWidth",
+    "55": "formatFlags",
+    "73": "Flags",
+    "246": "savedState",
+    "247": "levelByteSize",
+    "248": "levelByteSizeCopy",
+    "249": "savedMipLevel",
+    "250": "savedBlockIndex",
+    "251": "levelSrc",
+    "252": "levelSrcCursor",
+    "254": "levelOutBase",
+    "255": "levelOutCursor",
+    "256": "blockIndexBase",
+    "263": "mipDimsA",
+    "264": "mipDimsB",
+    "265": "mipBlockCount",
+    "266": "needsBlockBitmap",
+    "267": "blocksAcross",
+    "268": "blocksDown",
+    "269": "planeStride",
+    "270": "blockBitmapA",
+    "271": "mipDimsPacked",
+    "272": "fillPassIndex",
+    "274": "out",
+    "275": "rleValue",
+    "280": "planeBase",
+    "281": "planeIndex"
+   },
+   "labels": {
+    "18": "enter_state25",
+    "19": "return_wantMoreInput",
+    "32": "hdr_drainSpill_magic",
+    "35": "hdr_copyInto_magic",
+    "87": "format_setNone",
+    "92": "format_markUnsupported",
+    "93": "format_validate",
+    "99": "hdr_drainSpill_width",
+    "102": "hdr_copyInto_width",
+    "108": "hdr_drainSpill_height",
+    "111": "hdr_copyInto_height",
+    "117": "check_outputAttached",
+    "119": "hdr_wantFourBytes",
+    "133": "mip_drainSpill_flags",
+    "136": "mip_copyInto_flags",
+    "155": "finish_reloadDecoder",
+    "156": "finish_loadBitCount",
+    "157": "save_state_and_return",
+    "171": "fillpass_selectPlanes",
+    "176": "fillpass1_begin",
+    "187": "refill_bits_p1",
+    "197": "block_reset_p1",
+    "212": "fillpass2_testDxt2Dxt3",
+    "222": "block_reset_p2",
+    "223": "enter_state11",
+    "224": "fillpass2_begin",
+    "235": "refill_bits_rle",
+    "237": "rle_decodeSymbol",
+    "245": "block_reset_rle",
+    "246": "rle_consumeBits",
+    "262": "return_endOfInput",
+    "263": "fillpass3_testDxt4Dxt5",
+    "273": "block_reset_p3",
+    "275": "fillpass3_begin",
+    "286": "refill_bits_p3",
+    "296": "block_reset_p3b",
+    "314": "fillpass4_test",
+    "323": "refill_bits_p4",
+    "325": "fillpass4_begin",
+    "338": "refill_bits_p4b",
+    "348": "block_reset_p4",
+    "363": "fillpass5_begin",
+    "383": "fillpass_splitPlanes",
+    "403": "fillpass6_begin",
+    "423": "terrainBorder_test",
+    "447": "enter_state23",
+    "448": "bulkCopy_fullField",
+    "449": "bulkCopy_fieldDone",
+    "450": "bulkCopy_partialField",
+    "453": "bulkCopy_rawMip",
+    "470": "return_needInput_a",
+    "471": "return_needInput_b",
+    "472": "return_needInput_c"
+   }
+  },
+  "0x140b892d0": {
+   "name": "ImgAtex_Encode",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgAtex.cpp:750-1548  ImgAtex_Encode (writes ATEX containers)\n(levelData[], format, dims, levelCount, containerMagic, outBuffer, endianTag)\nMaps GR_FORMAT -> fourCC, writes the 12-byte header, then per mip emits the block bitmaps\nand the constant-fill passes (ImgAtex_Enc_*). Big-endian targets byteswap by bitCount.",
+   "lvars": {
+    "1": "format",
+    "3": "levelCount",
+    "4": "containerMagic",
+    "5": "outBuffer",
+    "6": "platform",
+    "13": "Flags",
+    "22": "formatFourCC",
+    "27": "blockCount",
+    "77": "blockDims",
+    "80": "level",
+    "81": "fmtFlags",
+    "82": "bitCount",
+    "101": "platforma"
+   },
+   "labels": {
+    "73": "level_encodeBlocks",
+    "80": "level_emitPlanes",
+    "119": "level_finish",
+    "127": "encode_done"
+   }
+  },
+  "0x140b86a90": {
+   "name": "ImgAtex_DecodeCleanup",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b86620": {
+   "name": "ImgAtex_MirrorTerrainBorders",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgAtex.cpp:1107  mirror the TERRAIN_BORDERS blocks.\nTERRAIN_BORDERS = 0xC0000003 -> outermost 2 rows/cols of a 64x64 block grid (256x256 texture).\nMirrors each border DXT block in X (nibble-swap of the 4x4 index rows) and/or Y (byteswap).\nThis is the per-mip flag 0x10 path.",
+   "lvars": {
+    "0": "blockData",
+    "1": "mipState",
+    "2": "blockCount",
+    "4": "blockIndex",
+    "5": "isBorderRow",
+    "6": "isBorderColumn",
+    "7": "sourceX",
+    "8": "sourceY",
+    "9": "sourceBlockOffset",
+    "10": "sourceIndex",
+    "11": "colorWord0",
+    "12": "colorWord1",
+    "13": "colorWord2",
+    "14": "alphaBits",
+    "15": "colorWord0Saved",
+    "16": "destBlock"
+   },
+   "labels": {}
+  },
+  "0x140b86af0": {
+   "name": "ImgAtex_DecodeBegin",
+   "comment": "Allocates and initialises the 168-byte ImgAtex decoder->detail state.\nPaired with ImgAtex_DecodeCleanup.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b84c20": {
+   "name": "ImgAtex_EncodePlane_Dxt2Dxt3",
+   "comment": "ImgAtex.cpp  block/constant-fill encode pass, selected when GR_FORMAT is DXT2 or DXT3\n  (guard `format - 23 <= 1` at the call site in ImgAtex_Encode).\n  (levelInfo, cursor, bitmapA, bitmapB, blockSrc, blockCount, stride)\nNAME DERIVED FROM THE CALL-SITE GUARD, not from reading the body.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b861b0": {
+   "name": "ImgAtex_EncodePlane_Secondary",
+   "comment": "ImgAtex.cpp  the remaining plane pass, taken when the 0x210 plane flag is set, 0x280 is\nnot, and the format is not DXTL.\nNAME DERIVED FROM THE CALL-SITE GUARD, not from reading the body.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b85280": {
+   "name": "ImgAtex_EncodePlane_Dxt4ToDxtl",
+   "comment": "ImgAtex.cpp  block/constant-fill encode pass, selected for GR_FORMAT 25..28\n  (DXT4, DXT5, DXTA, DXTL - guard `format - 25 <= 3`).\nNAME DERIVED FROM THE CALL-SITE GUARD, not from reading the body.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b85990": {
+   "name": "ImgAtex_EncodePlane_Color",
+   "comment": "ImgAtex.cpp  colour-plane encode pass, selected when the format flags carry 0x210 and the\nformat is not 30..32 (3DC/BC5/BC7). Takes an extra bool = (format == GR_FORMAT_DXT1).\nNAME DERIVED FROM THE CALL-SITE GUARD, not from reading the body.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b84b60": {
+   "name": "Arena_AllocatorSetSize",
+   "comment": "Arena\\Core\\Collections\\Allocator.h:620  resize a small owning allocator object.\nLayout: +0 liveFlag, +2 memCategoryId, +8 buffer pointer.\nAllocates the requested bytes under the Array memory category, frees any previous\nbuffer, and stores the new one. In ImgAtex_Encode this is what allocates the per-mip\nblock bitmaps.",
+   "lvars": {
+    "0": "allocator",
+    "1": "bytes",
+    "4": "catA",
+    "5": "memCategoryId",
+    "6": "newBuffer",
+    "7": "oldBuffer",
+    "8": "oldBufferToFree"
+   },
+   "labels": {}
+  },
+  "0x140c213f0": {
+   "name": "ImgAtexCommon_DecodeRleBlocks",
+   "comment": "Arena\\Engine\\Gr\\Img\\Atex\\ImgAtexCommon.cpp:103  THE ATEX RLE CONSTANT-FILL DECODER.\n  (cursor, detail)\nThis is the decode-side counterpart of the ImgAtex_EncodePlane_* passes, and the pass the\nper-mip flag bits 0x1/0x2/0x4/0x8 switch on.\nReads an RLE code byte and expands it into a run of identical blocks:\n  assert rleCode < 0xFF\n  assert (rleCode & RLE_COMMON_MASK) == 0        - the mask carves the code into fields\n  assert detail->rleLength <= detail->blockCount\n  assert detail->rleBlockCount[detail->rleBlockIndex] + detail->rleLength <= blockCount\nThe running state lives on the decoder detail: rleLength, rleBlockIndex, rleBlockCount[].\nStart here when chasing the constant-fill behaviour rather than in ImgAtex_Decode, whose\ncopy of this logic is inlined and interleaved with the streaming state machine.",
+   "lvars": {
+    "0": "cursor",
+    "1": "detail",
+    "9": "ii",
+    "11": "jj",
+    "21": "n",
+    "33": "m"
+   },
+   "labels": {}
+  },
+  "0x140b187e0": {
+   "name": "ImgDecode_Run",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgDecode.cpp  streaming decode driver.\nRoutes to ImgAtex_Decode / ImgDds_Decode / ImgDecode_ProbeFormat depending on the header.",
+   "lvars": {
+    "0": "decoder",
+    "2": "platform",
+    "3": "headerBytesBuffered",
+    "4": "inputPtr",
+    "5": "inputBytesLeft",
+    "6": "headerSpill",
+    "7": "headerSpillBytes",
+    "8": "headerBytesStillWanted",
+    "9": "spillByteIndex",
+    "10": "headerWritePtr",
+    "11": "bytesConsumedAfterCopy",
+    "12": "savedFlag",
+    "14": "inputPtrAfterHeader",
+    "15": "bytesConsumedTotal",
+    "16": "inputBytesRemaining",
+    "17": "magicForAtexTest",
+    "18": "magicStoredBack",
+    "19": "allocTagDetail",
+    "20": "detailAlloc",
+    "21": "detail",
+    "22": "allocTagBuffer",
+    "23": "fileType",
+    "24": "fileTypeMinus1",
+    "25": "savedField13",
+    "26": "magicWord",
+    "27": "savedBytesConsumed",
+    "28": "savedField28",
+    "29": "platformMinus5"
+   },
+   "labels": {}
+  },
+  "0x140b18b40": {
+   "name": "ImgDecode_ProbeFormat",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgDecode.cpp:181  probe chain for non-ATEX images.\nTries 9 (probe, decodeProc) pairs in order and latches the winner into detail->proc:\n  Bmp, Dcx, Gif, Jpeg, Pcx, Png, Psd, Tiff, Tga\nSets \"Unknown image file format\" when every probe declines.",
+   "lvars": {
+    "0": "decoder",
+    "2": "inputPtr",
+    "3": "detail",
+    "4": "inputBytesLeft",
+    "5": "headerSpill",
+    "6": "headerSpillBytes",
+    "7": "headerBytesBuffered",
+    "8": "state",
+    "9": "resultCode",
+    "10": "headerBytesWanted",
+    "11": "spillWriteIndex",
+    "12": "headerWritePtr",
+    "13": "headerCapacity",
+    "14": "chosenDecodeProc",
+    "15": "bytesConsumed",
+    "16": "stateMinus1",
+    "17": "stateMinus3",
+    "18": "decodeResult",
+    "20": "savedInputPtr",
+    "21": "savedBytesConsumed",
+    "22": "savedFlag",
+    "23": "inputStart"
+   },
+   "labels": {
+    "26": "probe_matched",
+    "27": "run_chosenDecoder",
+    "36": "result_wantMoreInput",
+    "37": "restore_consumed",
+    "38": "save_state_and_return"
+   }
+  },
+  "0x140b18640": {
+   "name": "ImgDecode_Cleanup",
+   "comment": "ImgDecode.cpp:290  release everything a decoder owns.\nFrees the scratch buffer, then dispatches on fileType:\n   0 -> ImgAtex_DecodeCleanup   1 -> ImgDds cleanup   2 -> free the probe-chain detail\n  -1 -> nothing was allocated yet",
+   "lvars": {
+    "0": "decoder",
+    "2": "fileType",
+    "3": "probeDetail"
+   },
+   "labels": {}
+  },
+  "0x140b18750": {
+   "name": "ImgDecode_Init",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgDecode.cpp:199  zero-initialise a decoder.\nClears the whole struct, then sets the defaults: format = 38 (GR_FORMATS, i.e. 'none'),\nfileType = -1 (not yet sniffed). Call this before feeding any bytes to ImgDecode_Run.",
+   "lvars": {
+    "0": "decoder"
+   },
+   "labels": {}
+  },
+  "0x140b18730": {
+   "name": "ImgDecode_OffsetIfBuffered",
+   "comment": "Tiny guard used while writing decoded output.\nReturns the offset unchanged normally, but returns 0 when the decoder is in\nmeasure-only mode (a size is set but no output buffer is attached), so the caller\nharmlessly writes to slot 0 instead of past a null pointer.",
+   "lvars": {
+    "0": "decoder",
+    "1": "offset"
+   },
+   "labels": {}
+  },
+  "0x140b89290": {
+   "name": "ImgAtex_IsAtexMagic",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgAtex.cpp  header test for the ATEX texture family.\nMasks the first 4 bytes with 0xFFFFFFF9 and accepts six signatures:\n  ATEX 0x58455441 | ATTX 0x58545441 | ATEC 0x43455441\n  ATEP 0x50455441 | ATEU 0x55455441 | ATET 0x54455441\nTrue here makes ImgDecode_Run set fileType=0 and route to ImgAtex_Decode.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b8eb90": {
+   "name": "ImgDds_IsDdsMagic",
+   "comment": "Header test for standard DirectDraw Surface files: first 4 bytes == 'DDS ' (0x20534444).\nTrue here makes ImgDecode_Run set fileType=1 and route to ImgDds_Decode.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b3fc80": {
+   "name": "ImgFmt_GetFlags",
+   "comment": "ImgFmt.cpp:198  ImgFmt_GetFlags(format) -> ImgFmt_Flags[format]. bit0 = block compressed; 0x210 / 0x280 select the extra planes.",
+   "lvars": {
+    "0": "format"
+   },
+   "labels": {}
+  },
+  "0x140b40740": {
+   "name": "ImgFmt_GetBitCount",
+   "comment": "ImgFmt.cpp:267  ImgFmt_GetBitCount(format) -> ImgFmt_InfoTable[format*3] (bits per pixel: 0x10/0x20/0x40).",
+   "lvars": {
+    "0": "format"
+   },
+   "labels": {}
+  },
+  "0x140b40890": {
+   "name": "ImgFmt_GetBlockDims",
+   "comment": "ImgFmt.cpp:293  ImgFmt_GetBlockDims(out, format) -> 4x4 when ImgFmt_Flags[format]&1 else 1x1.",
+   "lvars": {
+    "0": "out",
+    "1": "format"
+   },
+   "labels": {}
+  },
+  "0x140b40900": {
+   "name": "ImgFmt_GetName",
+   "comment": "ImgFmt.cpp:303  ImgFmt_GetName(format) -> wide string, e.g. L\"DXT5\", L\"ARGB 8888\".\nIndexes ImgFmt_Names. These are ArenaNet's own labels for the GR_FORMAT enum.",
+   "lvars": {
+    "0": "format",
+    "1": "formatIndex"
+   },
+   "labels": {}
+  },
+  "0x140b3f730": {
+   "name": "ImgCalc_LevelSize",
+   "comment": "ImgCalc.cpp  ImgCalcLevelSize(bitCount, blockDims, dims, level) -> bytes for one mip level.",
+   "lvars": {
+    "0": "bitCount",
+    "1": "blockDims",
+    "2": "dims",
+    "3": "level"
+   },
+   "labels": {}
+  },
+  "0x140a7e100": {
+   "name": "ImgFmt_NeedsEndianSwap",
+   "comment": "ImgFmt_NeedsEndianSwap(platform, format) -> bool\nTrue when the target platform is 5 or 6 (the big-endian consoles) AND the pixel format\nis not block-compressed. Block formats are byte streams and never get swapped.",
+   "lvars": {
+    "0": "platform",
+    "1": "format",
+    "3": "formatFlags"
+   },
+   "labels": {}
+  },
+  "0x140b8bcc0": {
+   "name": "ImgDds_Decode",
+   "comment": "",
+   "lvars": {
+    "208": "Src",
+    "211": "blockDims",
+    "212": "out",
+    "219": "bitCount"
+   },
+   "labels": {}
+  },
+  "0x140b8bc50": {
+   "name": "ImgDds_DecodeBegin",
+   "comment": "Allocates and initialises the DDS decoder->detail state.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b8bc00": {
+   "name": "ImgDds_DecodeCleanup",
+   "comment": "Releases the DDS decoder's private state. Mirror of ImgDds_DecodeBegin.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b8e240": {
+   "name": "ImgDds_ParseHeader",
+   "comment": "ImgDds.cpp:1398  parse a DirectDraw Surface header and lay out its mip chain.\nBounds-checks every field with `offset + size <= bytes` before reading.",
+   "lvars": {
+    "5": "platform",
+    "14": "BitCount",
+    "29": "si128",
+    "72": "out",
+    "77": "platforma",
+    "78": "platformb"
+   },
+   "labels": {}
+  },
+  "0x140bfa2e0": {
+   "name": "ImgDxt_DecodeBlocksSse",
+   "comment": "ImgDxt.cpp:902  SSE block decoder: compressed blocks -> RGBA texels.\n  (dstXmm, srcBlocks, widthBlocks, heightBlocks)\nCalled from the ImgBlt fast paths (five call sites, one per source format).",
+   "lvars": {
+    "0": "dst",
+    "1": "srcBlocks",
+    "2": "widthInBlocks",
+    "3": "heightInBlocks",
+    "102": "si128"
+   },
+   "labels": {}
+  },
+  "0x140bf75a0": {
+   "name": "ImgDxt_EncodeColorBlock",
+   "comment": "ImgDxt.cpp:104  fit a DXT1/BC1 colour block to 16 input texels.\n  (endpointsOut, texels, indicesOut, transparentFlag)\nAsserts (endpoint[0] > endpoint[1]) == (!transparent), which is the BC1 mode rule:\n  c0 >  c1 -> opaque 4-colour block\n  c0 <= c1 -> 3-colour block plus a transparent index",
+   "lvars": {
+    "0": "endpointsOut",
+    "1": "texels",
+    "2": "indicesOut",
+    "3": "transparent"
+   },
+   "labels": {}
+  },
+  "0x140bfaf60": {
+   "name": "ImgDxt_MakeConstantAlphaBlock",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgDxt.cpp:929  build a DXT alpha block that is one flat value.\nWrites both alpha endpoints as the same byte and zeroes the 3-bit index rows, so every\ntexel in the 4x4 block decodes to that alpha. Used for fully opaque/transparent blocks.",
+   "lvars": {
+    "0": "alphaBlock",
+    "1": "alpha",
+    "2": "alpha8"
+   },
+   "labels": {}
+  },
+  "0x140bfafc0": {
+   "name": "ImgDxt_MakeConstantColorBlock",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgDxt.cpp  build a DXT1/BC1 colour block that is one flat colour.\n  (block, rgb888, allowThreeColorMode)\nQuantises the colour to RGB565 both rounded DOWN and UP per channel, measures where the\ntrue value sits between them on a 0..12 scale, and picks whichever endpoint pair plus\nselector reproduces it best. Writes { u16 c0, u16 c1, u32 indices } with the same 2-bit\nselector repeated for all 16 texels.\nPairs with ImgDxt_MakeConstantAlphaBlock - together they emit a fully uniform DXT block.",
+   "lvars": {
+    "0": "block",
+    "1": "rgb888",
+    "2": "allowThreeColorMode",
+    "3": "srcR",
+    "4": "srcG",
+    "5": "srcB",
+    "13": "tR",
+    "16": "tG",
+    "17": "tB",
+    "21": "selector",
+    "22": "endpoint0",
+    "23": "endpoint1",
+    "24": "blend",
+    "25": "channelsDiffering"
+   },
+   "labels": {}
+  },
+  "0x140b8ad50": {
+   "name": "ImgBmp_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b8aae0": {
+   "name": "ImgBmp_Decode",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b8b650": {
+   "name": "ImgDcx_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b8b500": {
+   "name": "ImgDcx_Decode",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b96480": {
+   "name": "ImgGif_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b961d0": {
+   "name": "ImgGif_Decode",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b94300": {
+   "name": "ImgJpeg_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b941a0": {
+   "name": "ImgJpeg_Decode",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b971a0": {
+   "name": "ImgPcx_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b97050": {
+   "name": "ImgPcx_Decode",
+   "comment": "",
+   "lvars": {
+    "11": "Flags"
+   },
+   "labels": {}
+  },
+  "0x140b97a70": {
+   "name": "ImgPng_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b979a0": {
+   "name": "ImgPng_Decode",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b986a0": {
+   "name": "ImgPsd_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b983a0": {
+   "name": "ImgPsd_Decode",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9a760": {
+   "name": "ImgTiff_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9a630": {
+   "name": "ImgTiff_Decode",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9b150": {
+   "name": "ImgTga_Probe",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9ae50": {
+   "name": "ImgTga_Decode",
+   "comment": "",
+   "lvars": {
+    "17": "BitCount"
+   },
+   "labels": {}
+  },
+  "0x1409dda80": {
+   "name": "Arena_AssertFailed",
+   "comment": "Arena\\Core\\Platform\\Windows\\Exe\\Error\\ExeError.cpp  assertion failure reporter.\n  Arena_AssertFailed(const char* expression, const char* sourceFile, int line)\nCaptures the CPU context and hands off to the crash reporter.\n46,000+ call sites - this is THE most common function in the binary. Every call is a\ncompiled-in assert, so the two string arguments tell you the source file and the exact\ncondition the original C++ expected to hold. That is the single best source of ground\ntruth in this executable.",
+   "lvars": {
+    "0": "expression",
+    "1": "sourceFile",
+    "2": "line",
+    "6": "reportedFile",
+    "8": "capturedFrame",
+    "9": "cpuContext"
+   },
+   "labels": {}
+  },
+  "0x1409ddc30": {
+   "name": "Arena_FatalFormatted",
+   "comment": "ExeError.cpp  printf-style fatal error.\n  Arena_FatalFormatted(const char* sourceFile, int line, const char* format, ...)\nFormats into a 512-byte buffer, then reports. Used by the compiler-generated\n\"No valid case for switch variable 'x'\" default arms.",
+   "lvars": {
+    "0": "sourceFile",
+    "1": "line",
+    "2": "format",
+    "5": "reportedFile",
+    "7": "argsCopy",
+    "8": "capturedFrame",
+    "9": "cpuContext",
+    "10": "messageBuffer",
+    "11": "va"
+   },
+   "labels": {}
+  },
+  "0x1409bdc00": {
+   "name": "Arena_Log",
+   "comment": "Arena\\Core\\Platform\\Common\\Log.cpp:288  Arena_Log(severity, format, ...)\nseverity 0..4 (LOG_NUM_LOGTYPES == 5). Formats, then fans out to up to 5 registered\nlog sinks. Severity 4 additionally goes to a dedicated handler.",
+   "lvars": {
+    "0": "severity",
+    "1": "format",
+    "2": "checkedFormat",
+    "4": "sinkSlot",
+    "5": "sinksLeft",
+    "7": "argsCopy",
+    "8": "formattedText",
+    "9": "decoratedText",
+    "11": "va"
+   },
+   "labels": {}
+  },
+  "0x140235910": {
+   "name": "Arena_ReportError2Args",
+   "comment": "Error reporter taking a format plus TWO int arguments by pointer.\n  Arena_ReportError2Args(sourceFile, line, format, int* a, int* b)\nUsed by Array.h bounds checks: \"Index: {}, Count: {}\".",
+   "lvars": {
+    "0": "sourceFile",
+    "1": "line",
+    "2": "format",
+    "3": "argA",
+    "4": "argB",
+    "6": "formatLength"
+   },
+   "labels": {}
+  },
+  "0x140239260": {
+   "name": "Arena_ReportError3Args",
+   "comment": "Error reporter taking a format plus THREE int arguments by pointer.\nUsed by Array.h growth checks: \"New Count: {}, Count: {}, Alloc: {}\".",
+   "lvars": {
+    "0": "sourceFile",
+    "1": "line",
+    "2": "format",
+    "3": "argA",
+    "4": "argB",
+    "5": "argC",
+    "8": "formatLength"
+   },
+   "labels": {}
+  },
+  "0x1409cfef0": {
+   "name": "Arena_Alloc",
+   "comment": "Arena\\Core\\Platform\\Windows\\Exe\\ExeMemFlexible.cpp:1146  the engine heap allocator.\n  Arena_Alloc(categoryByte, bytes, ?, zeroInit, sourceFile, line, memCategoryId)\nAsserts bytes < MAX_ALLOC (0x7FFFFFEFFFF), optionally zero-fills, stamps the block\nheader with the category id, and updates that category's running total.\nThe memCategoryId argument comes from one of the Arena_MemCategory_* getters.",
+   "lvars": {
+    "0": "categoryByte",
+    "1": "bytes",
+    "3": "zeroInit",
+    "4": "sourceFile",
+    "5": "line",
+    "6": "memCategoryId",
+    "10": "block",
+    "12": "reportedFile",
+    "13": "blockHeader",
+    "15": "oomMessage"
+   },
+   "labels": {}
+  },
+  "0x1409cf780": {
+   "name": "Arena_Free",
+   "comment": "ExeMemFlexible.cpp  free a block from Arena_Alloc.\nReads the block's category tag, subtracts its size from that category's total,\nthen releases it. Null-safe.",
+   "lvars": {
+    "0": "ptr",
+    "2": "categoryId",
+    "3": "blockSize"
+   },
+   "labels": {}
+  },
+  "0x140e4ed0c": {
+   "name": "j_Arena_Free",
+   "comment": "Thunk to Arena_Free.",
+   "lvars": {
+    "0": "ptr"
+   },
+   "labels": {}
+  },
+  "0x1409d0170": {
+   "name": "Arena_TryResize",
+   "comment": "ExeMemFlexible.cpp:1205  Arena_TryResize(ptr, newBytes) -> bool\nAttempts to grow/shrink a block in place. Returns false if it could not, in which case\nthe caller allocates a new block and copies. Adjusts the category accounting by the\nsize delta. This is the fast path behind Array.h growth.",
+   "lvars": {
+    "0": "ptr",
+    "1": "newBytes",
+    "4": "oldBytes",
+    "5": "resized",
+    "6": "resizedPtr",
+    "7": "categoryId",
+    "8": "categoryCounter"
+   },
+   "labels": {}
+  },
+  "0x1409cf760": {
+   "name": "Arena_TagAlloc",
+   "comment": "Returns its SECOND argument unchanged - the allocation-tracking body is compiled out\nin the retail build. Treat 'x = Arena_TagAlloc(size, p, tag)' as simply 'x = p'.",
+   "lvars": {
+    "0": "bytes",
+    "1": "ptr"
+   },
+   "labels": {}
+  },
+  "0x1409d0280": {
+   "name": "Arena_GetAllocSize",
+   "comment": "Returns the usable size of a heap block (indirect call through the allocator vtable).\nTypically called just before Arena_Free to account for the release.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1409b9dc0": {
+   "name": "Arena_MemZero",
+   "comment": "memset(dst, 0, len).",
+   "lvars": {
+    "0": "dst",
+    "1": "len"
+   },
+   "labels": {}
+  },
+  "0x1409b9d90": {
+   "name": "Arena_MemSet",
+   "comment": "memset(dst, value, len).",
+   "lvars": {
+    "0": "dst",
+    "1": "value",
+    "2": "len"
+   },
+   "labels": {}
+  },
+  "0x1409b9840": {
+   "name": "Arena_MemCategory_Uncategorized",
+   "comment": "Lazily registers and returns the \"Uncategorized\" memory-category id.\nName confirmed from the category object's vtable slot 0, which returns \"Uncategorized\".\nPass the result to Arena_Alloc as the memCategoryId argument.",
+   "lvars": {
+    "1": "categoryObject"
+   },
+   "labels": {}
+  },
+  "0x1409b6e20": {
+   "name": "Arena_MemCategory_Array",
+   "comment": "Lazily registers and returns the \"Array\" memory-category id (vtable slot 0 -> \"Array\").\nUsed by Arena\\Core\\Collections\\Array.h allocations.",
+   "lvars": {
+    "1": "categoryObject"
+   },
+   "labels": {}
+  },
+  "0x140a6e8f0": {
+   "name": "Arena_MemCategory_GrImg",
+   "comment": "Lazily registers and returns the \"Gr Img\" memory-category id (vtable slot 0 -> \"Gr Img\").\nEvery image/texture buffer in the engine is billed to this category.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140a1ff20": {
+   "name": "Arena_ArraySetCount",
+   "comment": "Arena\\Core\\Collections\\Array.h:732  Arena_ArraySetCount(array, newCount)\nGrows the allocation first if newCount exceeds it, then stores the new count.\nArray layout: +0x10 allocated capacity, +0x14 current count.",
+   "lvars": {
+    "0": "array",
+    "1": "newCount",
+    "2": "countField",
+    "3": "requestedCount",
+    "4": "allocField",
+    "6": "reportedCount"
+   },
+   "labels": {}
+  },
+  "0x1401e7310": {
+   "name": "j_Arena_MemCategory_GrImg",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c1a2f0": {
+   "name": "HashMurmur2A_Add",
+   "comment": "bx::HashMurmur2A::add - streaming Murmur2A update.\n  (state, data, bytes)   state = { u32 hash, u32 size, u32 tail, u32 count }\nm = 0x5BD1E995, r = 24. Per 4-byte block: k*=m; k^=k>>24; k*=m; h*=m; h^=k.\nThis is the STREAMING '2A' variant, not one-shot MurmurHash2 and not Murmur3.",
+   "lvars": {
+    "0": "state",
+    "1": "data",
+    "2": "bytes"
+   },
+   "labels": {}
+  },
+  "0x140c1c880": {
+   "name": "HashMurmur2A_End",
+   "comment": "bx::HashMurmur2A::end - finalize.\nMixes the leftover tail bytes, then the total size, then avalanches:\n  h ^= h>>13; h *= m; h ^= h>>15\nCallers zero the state first, so the SEED IS 0.\nThis pair computes BOTH the bgfx uniform-name hash and the DXBC shader content hash.\nNOTE: it is unrelated to Token_Decode32 - GW2 material/param tokens are packed text,\nnot hashes, which is why hashing a uniform name never matches a token id.",
+   "lvars": {
+    "0": "state",
+    "1": "tail",
+    "2": "mixedTail",
+    "3": "mixedSize",
+    "4": "avalanche"
+   },
+   "labels": {}
+  },
+  "0x140d919c0": {
+   "name": "Base64_DecodeCore",
+   "comment": "Arena\\Services\\Base64\\Base64.cpp:191  Base64 decode, 8-bit input.\n  (srcChars, srcData, dstChars, dstData, decodeLut) -> bytes written\nBase64DecodeSize(n) = 3*(n/4). Consumes 4 chars -> 3 bytes. The LUT maps a character to\nits 6-bit value; the sentinel 127 marks '=' padding and ends the stream early.\nAny input char > 0xFF, or not in the LUT, aborts and returns 0.",
+   "lvars": {
+    "0": "srcChars",
+    "1": "srcData",
+    "2": "dstChars",
+    "3": "dstData",
+    "4": "decodeLut",
+    "9": "dstStart",
+    "10": "dstCursor",
+    "11": "srcQuad",
+    "12": "c0",
+    "13": "c1",
+    "14": "val2",
+    "15": "byte1",
+    "16": "val3",
+    "17": "prevVal"
+   },
+   "labels": {}
+  },
+  "0x140d91b30": {
+   "name": "Base64_DecodeCoreWide",
+   "comment": "Base64.cpp:191  same decoder, UTF-16 input. This is the one a chat link goes through,\nsince the client holds chat text as wide characters.",
+   "lvars": {
+    "0": "srcChars",
+    "1": "srcData",
+    "2": "dstChars",
+    "3": "dstData",
+    "4": "decodeLut",
+    "9": "srcBytesLeft",
+    "10": "dstStart",
+    "11": "dstCursor",
+    "12": "srcQuad",
+    "13": "c0",
+    "14": "c1",
+    "15": "val2",
+    "16": "byte1",
+    "17": "val3",
+    "18": "prevVal"
+   },
+   "labels": {}
+  },
+  "0x140d91ca0": {
+   "name": "Base64_EncodeCore",
+   "comment": "Arena\\Services\\Base64\\Base64.cpp:100  Base64 encode, 8-bit output.\n  (srcBytes, srcData, dstChars, dstData, alphabet) -> chars written incl. NUL\nBase64EncodeSize(n) = 4*ceil(n/3) + 1. Pads with '=' (0x3D); the 1-byte tail writes\n\"==\" as the word 0x3D3D. The alphabet is a CALLER ARGUMENT, which is why the same core\nserves both the standard (+/) and URL-safe (-_) variants.",
+   "lvars": {
+    "0": "srcBytes",
+    "1": "srcData",
+    "2": "dstChars",
+    "3": "dstData",
+    "4": "alphabet",
+    "9": "dstStart",
+    "10": "srcByte0",
+    "11": "srcByte2"
+   },
+   "labels": {}
+  },
+  "0x140d91e50": {
+   "name": "Base64_EncodeCoreWide",
+   "comment": "Base64.cpp:100  same encoder, UTF-16 output (writes _WORD per char).",
+   "lvars": {
+    "0": "srcBytes",
+    "1": "srcData",
+    "2": "dstChars",
+    "3": "dstData",
+    "4": "alphabet",
+    "7": "srcPtr",
+    "9": "dstStart",
+    "10": "srcByte0",
+    "11": "srcByte2"
+   },
+   "labels": {}
+  },
+  "0x140d92000": {
+   "name": "Base64_DecodeWide",
+   "comment": "Base64_DecodeCoreWide bound to the standard decode LUT.",
+   "lvars": {
+    "0": "srcChars",
+    "1": "srcData",
+    "2": "dstChars",
+    "3": "dstData"
+   },
+   "labels": {}
+  },
+  "0x140d92020": {
+   "name": "Base64_DecodeToByteArray",
+   "comment": "Decodes 8-bit base64 text into a growable byte Array.",
+   "lvars": {
+    "0": "dstArray",
+    "1": "srcData",
+    "3": "srcChars"
+   },
+   "labels": {}
+  },
+  "0x140d920d0": {
+   "name": "Base64_DecodeWideToByteArray",
+   "comment": "Decodes UTF-16 base64 text into a growable byte Array. The chat-link path.",
+   "lvars": {
+    "0": "dstArray",
+    "1": "srcData",
+    "3": "srcChars"
+   },
+   "labels": {}
+  },
+  "0x140d92180": {
+   "name": "Base64_Encode",
+   "comment": "Base64_EncodeCore bound to the standard +/ alphabet.",
+   "lvars": {
+    "0": "srcBytes",
+    "1": "srcData",
+    "2": "dstChars",
+    "3": "dstData"
+   },
+   "labels": {}
+  },
+  "0x140d921a0": {
+   "name": "Base64_EncodeWide",
+   "comment": "Base64_EncodeCoreWide bound to the standard +/ alphabet.",
+   "lvars": {
+    "0": "srcBytes",
+    "1": "srcData",
+    "2": "dstChars",
+    "3": "dstData"
+   },
+   "labels": {}
+  },
+  "0x140d921c0": {
+   "name": "Base64_EncodeToWideArray",
+   "comment": "Grows a wide-char Array to Base64EncodeSize(bytes) and encodes into it with the standard\nalphabet, NUL-terminating and fixing up the Array count.\nEvery ChatLink_Encode* function ends here - this is the [&...] producer.",
+   "lvars": {
+    "0": "dstArray",
+    "1": "srcData",
+    "2": "srcBytes",
+    "7": "dstBuf",
+    "8": "charsWritten"
+   },
+   "labels": {}
+  },
+  "0x140daaa10": {
+   "name": "Crc32",
+   "comment": "Arena\\Services\\Crc\\Crc.cpp:192  standard reflected CRC-32 (poly 0xEDB88320).\n  Crc32(seed, data, bytes) -> crc\nPre- and post-inverts (~seed in, ~crc out), 8 bytes per iteration then a byte tail.\nTable: Crc32_Table. Pass 0 as seed for a fresh CRC; chain by feeding the previous result.",
+   "lvars": {
+    "0": "seed",
+    "1": "data",
+    "2": "bytes",
+    "4": "crc",
+    "6": "cursor",
+    "7": "blockEnd"
+   },
+   "labels": {}
+  },
+  "0x140daab40": {
+   "name": "Crc32C",
+   "comment": "Arena\\Services\\Crc\\Crc.cpp:260  CRC-32C / Castagnoli (poly 0x82F63B78) - a DIFFERENT\npolynomial from Crc32 above; results are not interchangeable.\nUses the SSE4.2 CRC32 instruction when g_HasSse42Crc is set, otherwise the software\ntable Crc32C_Table. Both paths produce identical values.",
+   "lvars": {
+    "0": "seed",
+    "1": "data",
+    "2": "bytes",
+    "4": "crc",
+    "6": "cursor",
+    "7": "blockEnd"
+   },
+   "labels": {}
+  },
+  "0x140e46be0": {
+   "name": "Token_Decode64Wide",
+   "comment": "Token.cpp:99  same 64-bit decoder, UTF-16 output.",
+   "lvars": {
+    "0": "token",
+    "1": "dstData",
+    "2": "dstChars",
+    "3": "numericSuffix",
+    "7": "outIndex",
+    "8": "bits",
+    "9": "lastIndex",
+    "10": "writeIndex",
+    "11": "endIndex"
+   },
+   "labels": {}
+  },
+  "0x140e46cf0": {
+   "name": "Token_Decode32",
+   "comment": "Arena\\Services\\Token\\Token.cpp:30  32-bit token -> lowercase name. THIS IS NOT A HASH.\n  v = (token - 0x30000000) mod 2^32\n  while (v) { *out++ = Token_Base23Alphabet[v % 23]; v /= 23; }\nBase 23, alphabet \"abcdefghiklmnopvrstuwxy\" (no j/q/z; note the order ...o,p,v,r,s,t,u).\nIt is fully REVERSIBLE - encode by running the base-23 digits back and adding 0x30000000.\nBecause 23^7 just exceeds 2^32, every name is at most 7 characters.\nUsed for MODL material constant names and engine-global shader params (grblcol, ...).",
+   "lvars": {
+    "0": "token",
+    "1": "dstData",
+    "2": "dstChars",
+    "3": "value",
+    "7": "outIndex"
+   },
+   "labels": {}
+  },
+  "0x140e46e50": {
+   "name": "Token_Decode64",
+   "comment": "Arena\\Services\\Token\\Token.cpp:99  64-bit token -> name, 8-bit output. A DIFFERENT\nscheme from Token_Decode32 - do not confuse them.\n  low 60 bits: 5 bits per character, 1..26 -> 'a'..'z', 0 -> space\n  top  4 bits: emitted as two decimal digits (v/10, v%10)\nSo a 64-bit token is up to 12 lowercase chars plus an optional 2-digit numeric suffix.\nThis is the token64 carried by ModelTextureDataV65 and AmatSamplerConstantV1.",
+   "lvars": {
+    "0": "token",
+    "1": "dstData",
+    "2": "dstChars",
+    "4": "numericSuffix",
+    "6": "outIndex",
+    "7": "bits",
+    "8": "writeIndex",
+    "9": "endIndex"
+   },
+   "labels": {}
+  },
+  "0x1410d9650": {
+   "name": "j_Arena_MemCategory_Array",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1410d9660": {
+   "name": "j_Arena_MemCategory_Uncategorized",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130d510": {
+   "name": "ChatLink_Decode",
+   "comment": "Chat-link decode entry point: [&<base64>] -> a link object.\n  1. Base64_DecodeWideToByteArray on the wide text\n  2. ChatLink_ReadHeaderByte reads the 1-byte header\n  3. dispatch through ChatLink_DecoderTable[header]\nReturns 0 for an empty string or an out-of-range header.",
+   "lvars": {
+    "0": "wideText",
+    "1": "charCount",
+    "3": "textPtr",
+    "4": "payloadEnd",
+    "6": "linkObject",
+    "13": "savedScope",
+    "14": "payloadArray",
+    "15": "payloadData",
+    "16": "payloadCounts",
+    "18": "cursor"
+   },
+   "labels": {}
+  },
+  "0x14130d630": {
+   "name": "ChatLink_DecodeHdr0E",
+   "comment": "header 0x0E - a decoder exists but no matching encoder was found on the\nBase64 path, so this type is probably produced elsewhere (MsgConn)",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130d740": {
+   "name": "ChatLink_DecodeBuildTemplate",
+   "comment": "0x0D build template - profession, 3 specs, 10 skill palette u16s,\n16 pet/aquatic bytes, weapon list, skill-override list",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130dcd0": {
+   "name": "ChatLink_DecodeHdr00",
+   "comment": "header 0x00 - reserved / not produced by any encoder found",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130ddd0": {
+   "name": "ChatLink_DecodeCoin",
+   "comment": "0x01 coin: reads one u32 copper amount",
+   "lvars": {
+    "0": "payload",
+    "1": "payloadEnd",
+    "2": "checked",
+    "4": "memCategoryId",
+    "5": "raw",
+    "6": "linkObject",
+    "7": "copperAmount"
+   },
+   "labels": {}
+  },
+  "0x14130deb0": {
+   "name": "ChatLink_DecodeRecipe",
+   "comment": "0x09 recipe",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130dfc0": {
+   "name": "ChatLink_DecodeHdr10",
+   "comment": "header 0x10 template link (pairs with ChatLink_EncodeHdr10)",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130e210": {
+   "name": "ChatLink_DecodeHdr0F",
+   "comment": "header 0x0F template link (pairs with ChatLink_EncodeHdr0F)",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130e470": {
+   "name": "ChatLink_DecodeItem",
+   "comment": "0x02 item: qty + 3-byte id + flags, then walks the flag bits for the\noptional skin / upgrade1 / upgrade2 (u32 each) and nameKey / descKey (8 bytes each)",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130e900": {
+   "name": "ChatLink_DecodeNpcText",
+   "comment": "0x03 NPC / dialogue text id",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130ea30": {
+   "name": "ChatLink_DecodeOutfit",
+   "comment": "0x0B outfit",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130eb40": {
+   "name": "ChatLink_DecodeMapPoi",
+   "comment": "0x04 map point of interest",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130ec60": {
+   "name": "ChatLink_DecodePvpGame",
+   "comment": "0x05 PvP game",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130ed50": {
+   "name": "ChatLink_DecodeSkill",
+   "comment": "0x06 skill",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130ee60": {
+   "name": "ChatLink_DecodeSkin",
+   "comment": "0x0A skin",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130ef70": {
+   "name": "ChatLink_DecodeTrait",
+   "comment": "0x07 trait",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130f080": {
+   "name": "ChatLink_DecodeUser",
+   "comment": "0x08 user / player: GUID + name",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130f200": {
+   "name": "ChatLink_DecodeWvwObjective",
+   "comment": "0x0C WvW objective",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14130f620": {
+   "name": "ChatLink_EncodeBuildTemplate",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x0D build template - the big one. Layout, read straight off this function:\n  0D [profession:1]  [3 x (specId:1, traitBits:1)]  [10 x skillPalette:u16]\n  [16 x 1 byte  pet / aquatic slots]\n  [count:1][count x u16   weapons]      [count:1][count x u32  skill overrides]",
+   "lvars": {
+    "0": "dstArray",
+    "1": "buildSource",
+    "39": "headerByte",
+    "43": "payload",
+    "45": "payloadLen",
+    "48": "weaponArray",
+    "49": "skillOverrideArray",
+    "50": "dstArraySaved"
+   },
+   "labels": {}
+  },
+  "0x14130faf0": {
+   "name": "ChatLink_EncodeCoin",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x01 coin:  01 [amount:u32 copper]",
+   "lvars": {
+    "0": "dstArray",
+    "1": "copperAmount",
+    "6": "payloadPtr",
+    "9": "payload",
+    "11": "payloadLen",
+    "14": "headerByte"
+   },
+   "labels": {}
+  },
+  "0x14130fc00": {
+   "name": "ChatLink_EncodeRecipe",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x09 recipe",
+   "lvars": {
+    "15": "Src"
+   },
+   "labels": {}
+  },
+  "0x14130fd40": {
+   "name": "ChatLink_EncodeHdr10",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x10 template link. Same payload shape as ChatLink_EncodeHdr0F.\nSemantic name unconfirmed; header byte and field widths are what is verified.",
+   "lvars": {
+    "17": "Src"
+   },
+   "labels": {}
+  },
+  "0x14130ffa0": {
+   "name": "ChatLink_EncodeHdr0F",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x0F template link. Payload: u16 + u64 + u16 fields (same shape as ChatLink_EncodeHdr10).\nWhich template kind this is (wardrobe vs travel) is NOT confirmed - only the header\nbyte and the field widths are read off the code.",
+   "lvars": {
+    "17": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310200": {
+   "name": "ChatLink_EncodeItem",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x02 item:  02 [qty:1][itemId:3 LE][flags:1] then, per flag bit,\n  0x80 skin:u32  0x40 upgrade1:u32  0x20 upgrade2:u32\n  0x10 nameKey:8  0x08 descKey:8   (absent fields are omitted -> walk the flags)",
+   "lvars": {
+    "27": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310430": {
+   "name": "ChatLink_EncodeNpcText",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x03 NPC/dialogue text id",
+   "lvars": {
+    "15": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310580": {
+   "name": "ChatLink_EncodeOutfit",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x0B outfit",
+   "lvars": {
+    "14": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310690": {
+   "name": "ChatLink_EncodeMapPoi",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x04 map point of interest",
+   "lvars": {
+    "14": "Src"
+   },
+   "labels": {}
+  },
+  "0x1413107a0": {
+   "name": "ChatLink_EncodePvpGame",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x05 PvP game",
+   "lvars": {
+    "14": "Src"
+   },
+   "labels": {}
+  },
+  "0x1413108b0": {
+   "name": "ChatLink_EncodeSkill",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x06 skill",
+   "lvars": {
+    "14": "Src"
+   },
+   "labels": {}
+  },
+  "0x1413109c0": {
+   "name": "ChatLink_EncodeSkin",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x0A skin",
+   "lvars": {
+    "14": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310ad0": {
+   "name": "ChatLink_EncodeTrait",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x07 trait",
+   "lvars": {
+    "14": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310be0": {
+   "name": "ChatLink_EncodeUser",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x08 user/player: GUID + name",
+   "lvars": {
+    "18": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310d90": {
+   "name": "ChatLink_EncodeWvwObjective",
+   "comment": "Chat-link encoder. Builds the raw payload in a growable byte Array, then calls\nBase64_EncodeToWideArray. The finished link is displayed as [&<base64>].\nPayload always starts with the 1-byte header shown below.\n\n0x0C WvW objective: objective(3) 00 map(3) 00",
+   "lvars": {
+    "17": "Src"
+   },
+   "labels": {}
+  },
+  "0x141310fc0": {
+   "name": "ChatLink_ReadHeaderByte",
+   "comment": "Reads and consumes the leading header byte.\nReturns the byte as-is when it is < 0x11, otherwise 17 = invalid. So the header byte IS\nthe index into ChatLink_DecoderTable - there is no remapping.",
+   "lvars": {
+    "0": "cursor",
+    "1": "end",
+    "2": "bytePtr",
+    "3": "next"
+   },
+   "labels": {}
+  },
+  "0x140432910": {
+   "name": "Arena_OpenAddrFindSlot",
+   "comment": "Generic open-addressing hash-map slot lookup: (map, &key, &hashOut) -> slot index.\nMap header { u32 size@0, u32 count@4, entries@8 }. Used by the text-key map among others.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140daacf0": {
+   "name": "CptRc4_GetIvUnsupported",
+   "comment": "CptRc4.cpp:129  vtable slot that always fatals:\n  \"CKeyRc4 does not have an initialization vector\"\nRC4 is a keystream cipher with no IV, so this slot exists only to satisfy the interface.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140daad10": {
+   "name": "CptRc4_Create",
+   "comment": "CptRc4.cpp:89  allocate a 272-byte RC4 object and run the KSA.\n  (keyBytes, keyPtr) -> object\nLayout: vtable@+0, i@+8, j@+12, 256-byte S-box@+16. vtable[0]/[1] = CptRc4_Crypt.",
+   "lvars": {
+    "0": "keyBytes",
+    "1": "keyPtr",
+    "4": "memCategoryId",
+    "5": "raw",
+    "6": "rc4",
+    "7": "sbox",
+    "9": "fill",
+    "10": "rounds",
+    "11": "keyIndex",
+    "13": "tmp"
+   },
+   "labels": {}
+  },
+  "0x140daae60": {
+   "name": "Cpt_ExpandKeyTo20",
+   "comment": "Key expansion: an 8-byte strs password -> the 20-byte key actually fed to RC4.\n  (keyBytes, keyPtr, dstArray)\n1. fill 20 bytes cyclically: dst[i] = key[i % keyBytes]\n2. XOR in any key bytes past 20 (never happens for the 8-byte strs keys)\n3. ONE SHA-1-shaped round over the 5 dwords, ROL5 / ROL30, constants\n   -1615554381, 1722862861, 0x22222222, 0x7BF36AE2, -214083945,\n   0x59D148C0, -696916869, -1269579175\nNot a standard SHA-1 - it is one custom round, so it must be ported literally.",
+   "lvars": {
+    "0": "keyBytes",
+    "1": "keyPtr",
+    "2": "dstArray",
+    "7": "key20",
+    "11": "w1",
+    "12": "w0",
+    "13": "w3",
+    "14": "w4"
+   },
+   "labels": {}
+  },
+  "0x140dab0f0": {
+   "name": "CptRc4_Crypt",
+   "comment": "Arena\\Services\\Crypt\\CptRc4.cpp  RC4 PRGA - the actual cipher.\n  (rc4Object, dstArray, bytes, src)\n  i = (i+1) & 255;  j = (j + S[i]) & 255;  swap(S[i], S[j]);\n  out[n] = in[n] ^ S[(S[i] + S[j]) & 255]\nRC4 IS SYMMETRIC, so this ONE function is both the encryptor and the decryptor - that is\nwhy vtable slots 0 (encrypt) and 1 (decrypt) hold the same pointer. There is no separate\nstrs 'encrypt' routine to find.",
+   "lvars": {
+    "0": "rc4",
+    "1": "dstArray",
+    "2": "bytes",
+    "3": "src",
+    "9": "dstPtr",
+    "10": "srcMinusDst",
+    "11": "remaining",
+    "16": "tmp"
+   },
+   "labels": {}
+  },
+  "0x140dab1b0": {
+   "name": "CptRc4_GetIv",
+   "comment": "vtable slot 5. RC4 is a stream cipher with no IV - see the string\n\"CKeyRc4 does not have an initialization vector\".",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140dab1d0": {
+   "name": "CptRc4_SetKey",
+   "comment": "CptRc4.cpp:89/104  re-key an existing RC4 object in place (the KSA on its own).\nIdentity permutation, then 256 rounds of j += S[i] + key[i % keyBytes]; swap.",
+   "lvars": {
+    "0": "rc4",
+    "1": "keyBytes",
+    "2": "keyPtr",
+    "6": "sbox",
+    "8": "fill",
+    "9": "rounds",
+    "10": "keyIndex",
+    "12": "tmp"
+   },
+   "labels": {}
+  },
+  "0x1410d6a40": {
+   "name": "TextKey_GrowMap",
+   "comment": "Rehash / grow the runtime text-key map.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1410d79a0": {
+   "name": "TextKey_Insert",
+   "comment": "Insert one stringId -> 8-byte password into the runtime key map (textContext+512).\n  (textId in RCX, key8 in RDX)\nTHIS IS THE HOOK POINT for capturing keys: every key the client ever learns arrives here,\nfrom server messages, TextPack chunks, or control codes embedded in parent strings.\nGrows the table via TextKey_GrowMap when 3*(count+1) >= 2*size.",
+   "lvars": {
+    "0": "textId",
+    "1": "key8",
+    "4": "keyMap",
+    "5": "Slot",
+    "7": "lookupKey",
+    "8": "hash"
+   },
+   "labels": {}
+  },
+  "0x1410db5b0": {
+   "name": "TextDecode_ReleaseDecoder",
+   "comment": "Gw2\\Engine\\Text\\TextDecode.cpp:26  return a decoder to the pool.\nAsserts it is already unlinked from the hash, clears its buffers, and if the busy count\nis zero puts it back on the free list.",
+   "lvars": {
+    "0": "decoder",
+    "1": "textContext"
+   },
+   "labels": {}
+  },
+  "0x1410db630": {
+   "name": "TextDecode_Finish",
+   "comment": "TextDecode.cpp tail of TextDecode_DecodeString; returns the finished buffer.",
+   "lvars": {
+    "34": "Src"
+   },
+   "labels": {}
+  },
+  "0x1410dba40": {
+   "name": "TextDecode_DecodeRecord",
+   "comment": "TextDecode.cpp  the core record decoder - decrypt then bit-unpack.\n  (decoder, textContext, stringId, record, key8)\nRecord header is u16[]: [0] = total length (>= 6), [1] = baseChar, byte[4] = rangeBits,\npayload = record+3, payload length = record[0] - 6.\n\nIF key8 != 0:  Cpt_ExpandKeyTo20(8, &key8) -> CptRc4_Create -> CptRc4_Crypt over the payload\nELSE:          the payload is copied verbatim\n\nThen, if baseChar == 0 && rangeBits == 16 && the length is even, the payload IS raw UTF-16\nand is passed straight through. Otherwise bit-unpack, LSB first, refilling while the\naccumulator holds <= 0x18 bits:\n    sym = acc & ((1 << rangeBits) - 1)\n    sym == 0        -> NUL terminator\n    sym in 1..31    -> TextDecode_SymbolTable[sym - 1]\n    sym >= 0x20     -> (wchar)(sym + baseChar - 32)",
+   "lvars": {
+    "0": "decoder",
+    "1": "textContext",
+    "2": "stringId",
+    "3": "record",
+    "4": "key8",
+    "10": "scratchArray",
+    "12": "rc4",
+    "13": "payloadLen",
+    "16": "rangeBits",
+    "18": "outCount",
+    "19": "decodedCount",
+    "20": "outPtr",
+    "21": "srcPtr",
+    "22": "bitAcc",
+    "23": "bitCount",
+    "24": "srcEnd",
+    "27": "symbol",
+    "28": "decodedChar",
+    "33": "baseChar"
+   },
+   "labels": {}
+  },
+  "0x1410dbd50": {
+   "name": "TextDecode_DecodeString",
+   "comment": "Gw2\\Engine\\Text\\TextDecode.cpp:217  decode one string by id. THE ENTRY POINT.\n  (decoder, stringId, record) -> wide string\n1. validate the source buffer (TextParser_Validate)\n2. TextParser_FindEmbeddedKey - a parent string may carry the key in a control code\n3. otherwise look the key up in the runtime key map at textContext+512\n     slot = Arena_OpenAddrFindSlot(map, &stringId); 24-byte entries\n     { u32 id@0, u64 key8@8, u32 occupied@16 }\n4. TextDecode_DecodeRecord with whatever key was found (0 = plaintext record)\nThe key map is populated at RUNTIME (server messages / TextPack chunks), which is why a\nstrs file pulled straight out of Gw2.dat cannot be decrypted offline without captured keys.",
+   "lvars": {
+    "0": "decoder",
+    "1": "stringId",
+    "2": "record",
+    "9": "textContext",
+    "12": "key8",
+    "13": "Slot",
+    "16": "decoded",
+    "36": "stringIdKey"
+   },
+   "labels": {}
+  },
+  "0x1410dc440": {
+   "name": "TextDecode_BeginDecodeString",
+   "comment": "Gw2\\Engine\\Text\\TextDecode.cpp:277  start decoding a source string that may reference\nother strings.\n  (decoder, textContext, sourceWide, requestId, userTag)\nCopies the source into bufferOne, validates it with TextParser_Validate, then\nTextParser_CollectStringIds gathers every stringId the text refers to and each one is\nrequested asynchronously (m_pendingCount is bumped per request). Completion runs through\nTextDecode_Finish. Asserts !m_pendingCount on entry.",
+   "lvars": {
+    "0": "decoder",
+    "1": "textContext",
+    "2": "sourceWide",
+    "3": "requestId",
+    "4": "userTag",
+    "10": "charCount",
+    "13": "idCursor",
+    "14": "idEnd"
+   },
+   "labels": {}
+  },
+  "0x1410e02f0": {
+   "name": "TextParser_FindEmbeddedKey",
+   "comment": "Scans a source string for a control code carrying the decryption key of a referenced\nstring. This is the path by which a parent string hands its child the password.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1410e1d30": {
+   "name": "TextParser_Validate",
+   "comment": "Gw2\\Engine\\Text\\TextParser.cpp  CParser::Validate(ptr, term, strict) -> end reached.\nReturns the terminator when the whole buffer parsed cleanly; asserted by TextDecode.",
+   "lvars": {
+    "0": "ptr",
+    "1": "term"
+   },
+   "labels": {}
+  },
+  "0x1410e2800": {
+   "name": "TextKey_LoadFromChunk",
+   "comment": "Bulk key loader, registered as a chunk-read callback (referenced from data only).\n  chunk = { u8 count@2, ptr@3 } -> count x 12-byte records { u32 stringId@0, u64 key8@4 }\nEach record goes to TextKey_Insert. This is the txtp / TextPack path.",
+   "lvars": {
+    "10": "Slot"
+   },
+   "labels": {}
+  },
+  "0x1402f1d80": {
+   "name": "McMaterial_Create",
+   "comment": "McMaterial.cpp  build a material: resolves shaderId to its shader package, loads the\ntexture files, and binds textures to sampler slots by token.",
+   "lvars": {
+    "38": "byteSizeOut",
+    "39": "techniqueCountOut",
+    "40": "blobPtrOut"
+   },
+   "labels": {}
+  },
+  "0x1402f3560": {
+   "name": "McMaterial_GetOrCreate",
+   "comment": "McMaterial.cpp:1526  material cache lookup / create.\n  (cache, filenames, filenameCount, shaderId)\nAsserts filenameCount in 1..TEXTURE_COUNT_MAX (4) and shaderId < MATERIAL_SHADERS_BUILT_IN.\nMATERIAL_SHADERS_BUILT_IN is 0x3A = 58 - read straight off the `a4 >= 0x3A` compare.\nHashes the (filenames, shaderId) key; on a miss builds one via McMaterial_Create.",
+   "lvars": {
+    "0": "cache",
+    "1": "filenames",
+    "2": "filenameCount",
+    "3": "shaderId",
+    "11": "material"
+   },
+   "labels": {}
+  },
+  "0x1402f48d0": {
+   "name": "McMaterial_GetBuiltInShaderBlob",
+   "comment": "McMaterial.cpp  the 58 PRECOMPILED material shader packages baked into the EXE.\n  (shaderId, &blobPtr, &byteSize, &techniqueCount, ...)\nA switch over shaderId 0..57; each case returns a pointer into .rdata plus its size, e.g.\n  case 0 -> unk_14193E0B0, 22716 bytes, 1 technique\n  case 2 -> unk_141944920, 27676 bytes, 2 techniques\nThese are complete AMAT packages living inside Gw2-64.exe - no dat file involved.\nshaderId 58 = MATERIAL_SHADER_CUSTOM asserts \"must be loaded from a file\" and takes the\nBgfxShader_LoadFromAmat path instead.",
+   "lvars": {
+    "0": "shaderId",
+    "1": "blobPtrOut",
+    "2": "byteSizeOut",
+    "3": "techniqueCountOut"
+   },
+   "labels": {}
+  },
+  "0x1409c1a00": {
+   "name": "Math_HighestBitIndex",
+   "comment": "Index of the most significant set bit (bit scan reverse).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140a81610": {
+   "name": "GrResource_Lookup",
+   "comment": "Asset-cache lookup by (resourceType, id). Types seen: 10 = shader, 11 = shader data.",
+   "lvars": {
+    "0": "resourceType",
+    "1": "id"
+   },
+   "labels": {}
+  },
+  "0x140a87310": {
+   "name": "Math_BitCount",
+   "comment": "Population count.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140aaa1d0": {
+   "name": "GrMat_GetShaderChunk",
+   "comment": "Arena\\Engine\\Gr\\GrMat.cpp:2069  fetch a chunk out of a loaded shader/material asset.\n  (shaderId, fourcc, version, &techniqueCountOut) -> chunk pointer\nLooks the asset up through GrResource_Lookup (type 10 = shader, type 11 = shader data),\nreads the technique count from asset+88, then virtual-dispatches the chunk fetch.",
+   "lvars": {
+    "0": "shaderId",
+    "1": "fourcc",
+    "2": "version",
+    "3": "techniqueCountOut",
+    "7": "shaderAsset",
+    "8": "shaderData"
+   },
+   "labels": {}
+  },
+  "0x140af81f0": {
+   "name": "GrGeoset_Create",
+   "comment": "Arena\\Engine\\Gr  build a geoset (one drawable mesh chunk).\nAsserts vertexBufferCount > 0 and < GR_GEOSET_MAX_VERTEX_BUFFERS - a geoset's vertex data\nmay be SPLIT ACROSS SEVERAL BUFFERS, each with its own fvf, which is why parsing a MODL\nmeans walking a list of (fvf, buffer) pairs rather than assuming one interleaved stream.",
+   "lvars": {
+    "5": "Src",
+    "52": "m"
+   },
+   "labels": {}
+  },
+  "0x140afa690": {
+   "name": "GrGeoset_SetVertexFormats",
+   "comment": "Assigns the per-buffer fvf list to a geoset; asserts fvfCount < GR_GEOSET_MAX_VERTEX_BUFFERS.",
+   "lvars": {
+    "6": "Src"
+   },
+   "labels": {}
+  },
+  "0x140b59f70": {
+   "name": "BgfxVertexLayout_Init",
+   "comment": "bgfx::VertexLayout construction / reset.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b5a9f0": {
+   "name": "BgfxVertexLayout_Add",
+   "comment": "bgfx::VertexLayout::add(layout, attrib, num, type, normalized, asInt).\nAttrib: 0 Position 1 Normal 2 Tangent 3 Bitangent 4 Color0 8 Indices 9 Weight 10..17 TexCoord0-7\nType:   0 Uint8  1 Uint10  2 Int16  3 Half  4 Float",
+   "lvars": {
+    "0": "layout",
+    "1": "attrib",
+    "2": "num",
+    "3": "type",
+    "4": "normalized",
+    "5": "asInt"
+   },
+   "labels": {}
+  },
+  "0x140b5bda0": {
+   "name": "BgfxVertexLayout_Begin",
+   "comment": "bgfx::VertexLayout::begin.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b5e890": {
+   "name": "BgfxShaderD3D11_Create",
+   "comment": "bgfx renderer_d3d11.cpp  ShaderD3D11::create - blob -> GPU shader. THE COMMON SINK:\nevery shader reaches the GPU through here, whether it came from the exe or from a file.\nBlob layout: magic4 ('VSH'/'FSH'/'CSH' + version), hashIn u32, hashOut u32 (v>=6),\n  uniformCount u16, then per uniform { nameLen u8, name, type u8, num u8,\n  regIndex u16 (a BYTE offset into the cbuffer), regCount u16,\n  texInfo u16 (v>=8), texFormat u16 (v>=10) },\n  codeSize u32, DXBC code, attrCount u8, attrs u16[], constBufSize u16.\nComputes a Murmur2A content hash of the DXBC (HashMurmur2A_Add/_End) = the shader's\nidentity, then calls CreateVertexShader / CreatePixelShader / CreateComputeShader.\nErrors: \"Failed to create {vertex,fragment,compute} shader. Hash %u. HRESULT(%x).\"",
+   "lvars": {
+    "79": "Size",
+    "80": "Size_4",
+    "133": "Src"
+   },
+   "labels": {}
+  },
+  "0x140b669c0": {
+   "name": "BgfxVertexLayout_End",
+   "comment": "bgfx::VertexLayout::end - finalises offsets and the stride.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9c310": {
+   "name": "GrFvf_BuildVertexLayout",
+   "comment": "Arena\\Engine\\Gr\\Bgfx\\BgfxBuffer.cpp:406  GrFvf bitmask -> bgfx::VertexLayout.\nTHE definitive element order: the sequence of Add calls below IS the byte order in the\nvertex. (attrib, num, type, normalized)  type: 0=Uint8 2=Int16 3=Half 4=Float\n  0x00000001 POSITION        (0 Position,  3, Float)\n  0x08000000 POSITION4       (0 Position,  4, Float)\n  0x00000002 WEIGHTS         (9 Weight,    4, Uint8, normalized)\n  0x00000004 GROUP           (8 Indices,   4, Uint8, RAW - bone indices)\n  0x00000008 NORMAL          (1 Normal,    3, Float)\n  0x04000000 NORMAL_C        (1 Normal,    4, Uint8, normalized)\n  0x10000000 POSITION_COMPRESSED -> also emitted as (1 Normal, 4, Uint8, normalized)\n  0x00000010 COLOR           (4 Color0,    4, Uint8, normalized)  BGRA order\n  0x00000020 TANGENT         (2 Tangent,   3, Float)\n  0x00000040 BITANGENT       (3 Bitangent, 3, Float)\n  0x00000080 TANGENT_FRAME   -> THREE adds: Normal/Tangent/Bitangent, each 4 x Uint8 norm\n  0x0000FF00 texcoords F32   (s_kTexCoordRemap[i], 2, Float)\n  0x00FF0000 texcoords F16   (s_kTexCoordRemap[i], 2, Half)\nTANGENT_FRAME is mutually exclusive with NORMAL|TANGENT|BITANGENT (asserted at :406).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9d110": {
+   "name": "GrFvf_CreateVertexLayout",
+   "comment": "BgfxBuffer.cpp  wraps GrFvf_BuildVertexLayout and asserts\n  DDI_STRIDE(fvf) == vertexLayout->CalcStride()   and   CalcStride() != 0\nFor an fvf with no compression bits the on-disk stride and the GPU stride are identical;\nthat assert is exactly what guarantees it.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9e6c0": {
+   "name": "BgfxBuffer_UploadGeoset",
+   "comment": "BgfxBuffer.cpp  upload a geoset's vertex/index data to GPU buffers.\nAsserts vertices.count == geosetIb.vertexCountUsed.",
+   "lvars": {
+    "60": "Src",
+    "65": "VertexLayout",
+    "75": "lpCriticalSection"
+   },
+   "labels": {}
+  },
+  "0x140ba7e60": {
+   "name": "GrFvf_ConvertVertices",
+   "comment": "GrFvf.cpp  the big source-fvf -> dest-fvf vertex converter (dispatches to the ~50\nspecialised per-format converters in this file).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140ba8ce0": {
+   "name": "GrFvf_TexCoordCountF32",
+   "comment": "Number of FLOAT32 texcoord channels = highestSetBit(fvf & 0x0000FF00) - 7.\nWorks because texcoord bits are always allocated contiguously upward from bit 8.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140ba8d00": {
+   "name": "GrFvf_TexCoordCountF16",
+   "comment": "Number of HALF16 texcoord channels = highestSetBit(fvf & 0x00FF0000) - 15.\nF32 and F16 texcoords are mutually exclusive (asserted in GrFvf.cpp).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140ba8da0": {
+   "name": "GrFvf_FieldIndex",
+   "comment": "GrFvf.cpp:1647  index of one field among the fields present.\n  GrFvf_FieldIndex(fvf, field) = popcount(fvf & (field - 1))\nAsserts that `field` is a single bit and that it is actually set in fvf.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140ba8e90": {
+   "name": "GrFvf_ToString",
+   "comment": "GrFvf.cpp:1659  short mnemonic for an fvf - useful as an independent check on the bit\nmeanings, because the engine names each bit with a letter:\n  0x001 'p' position   0x002 'w' weights   0x004 'i' indices/group  0x008 'n' normal\n  0x010 'c' color      0x020 't' tangent   0x040 'b' bitangent      0x080 'f' tangentFrame\n  0x20000000 'F'\nthen one digit = F32 texcoord count, then one digit = F16 texcoord count.\nNeeds a buffer of at least 11 chars.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140bfcff0": {
+   "name": "BgfxShader_LoadFromAmat",
+   "comment": "Arena\\Engine\\Gr\\Bgfx\\BgfxShader.cpp:698  load a shader package from a DAT FILE.\n  GrMat_GetShaderChunk(shaderId, 'BGFX' (0x58464742), version 3, &techniqueCount)\nThis is the other half of the shader story: MODL -> material -> AMAT file -> BGFX chunk.\nThen BgfxShader_BuildPasses walks the techniques/passes/effects.\nAsserts m_passes.Count() != 0.",
+   "lvars": {
+    "0": "shaderObj",
+    "2": "shaderId",
+    "8": "ShaderChunk",
+    "10": "techniqueCount"
+   },
+   "labels": {}
+  },
+  "0x140bffb20": {
+   "name": "BgfxShader_BuildPasses",
+   "comment": "BgfxShader.cpp  walks the AMAT techniques -> passes -> effects and fills m_passes.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfbbd0": {
+   "name": "ModelFile_GetLodGeosets",
+   "comment": "ModelFile.cpp  per-LOD geoset array accessor; asserts lodIndex < arrsize(m_geosets).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d11310": {
+   "name": "Model_GetGrannyModel",
+   "comment": "Accessor for a model's underlying Granny model object (asserts m_grannyModel).",
+   "lvars": {
+    "44": "Src"
+   },
+   "labels": {}
+  },
+  "0x140d4ddf0": {
+   "name": "ModelGranny_SampleTrackGroup",
+   "comment": "Granny animation sampling; bounds-checked against\nModelUtilGetGrannyAnim(&data)->TrackGroupCount.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141904b60": {
+   "name": "GrannyFvf_Register",
+   "comment": "Registers a Granny vertex format in the spare list.\nOverflow message: \"Granny FVF Spare list to Small. Locate and increase\nMAX_GRANNY_VERTEX_FORMAT_TYPES from %d to %d or greater.\"\nGranny keeps its OWN vertex-format table, separate from GrFvf - do not conflate them.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1410dffd0": {
+   "name": "TextParser_CollectStringIds",
+   "comment": "TextParser.cpp  walk a wide string and append every referenced stringId to\ncontext->decodeIdArray. Used by TextDecode_BeginDecodeString to discover dependencies.",
+   "lvars": {},
+   "labels": {}
+  }
+ },
+ "data": {
+  "0x1420a2210": {
+   "name": "Cmp_DistBase",
+   "comment": "Cmp_DistBase: word[30] match-distance bases {0,1,2,3,4,6,8,12,...,24576}. Actual distance = base + read(Cmp_DistExtraBits[sym]), then copy from outPtr-(dist+1). Shared by Method0 and Method1."
+  },
+  "0x1420a2250": {
+   "name": "Cmp_LenBase",
+   "comment": "Cmp_LenBase: byte[29] match-length bases {0..8,10,12,14,16,20,...,224,255}, indexed by (symbol-256). Total length = base + read(Cmp_LenExtraBits[i]) + minMatchLen."
+  },
+  "0x1420a2390": {
+   "name": "Cmp_DistExtraBits",
+   "comment": "Cmp_DistExtraBits: byte[30] {0,0,0,0,1,1,2,2,...,14,14}. NOTE the decoder addresses this as Cmp_EncSymLut[sym+288] - the two arrays are contiguous and IDA folds the displacement."
+  },
+  "0x1420a2430": {
+   "name": "Cmp_LenExtraBits",
+   "comment": "Cmp_LenExtraBits: byte[28] {0 x8, 1 x4, 2 x4, 3 x4, 4 x4, 5 x4}, indexed by (symbol-256)."
+  },
+  "0x1420a2270": {
+   "name": "Cmp_EncSymLut",
+   "comment": "Cmp_EncSymLut: byte[288], referenced only by Cmp_EncSymLutLookup (encoder side). Cmp_DistExtraBits lives immediately after it at +288."
+  },
+  "0x1420a28d0": {
+   "name": "CmpHuff_BootRangeTbl",
+   "comment": "CmpHuff_BootRangeTbl: 14 x {u32 threshold, u32 baseIndex}, descending thresholds 0xA0000000..0. Walked to find the bit-length of the bootstrap prefix code, then indexes CmpHuff_BootSymTbl."
+  },
+  "0x1420a2940": {
+   "name": "CmpHuff_BootSymTbl",
+   "comment": "CmpHuff_BootSymTbl: 768 bytes = THREE 256-byte sections, all indexed by the same key\n  index = (runLength << 5) | codeLength    (runLength 0..7, codeLength 0..31)\n  [  0..255]  DECODE: one packed byte per entry, (runLength << 5) | codeLength\n  [256..511]  ENCODE: how many bits the bootstrap code occupies\n  [512..767]  ENCODE: the bootstrap code value itself\nSo it is a bidirectional codec table, not just the decode half. Decode side is read by\nCmpHuff_BuildDecodeTable; encode side by CmpHuff_WriteRunLengthCode."
+  },
+  "0x141c80410": {
+   "name": "ImgFmt_Flags",
+   "comment": "ImgFmt_Flags: dword[38] (GR_FORMATS=0x26). bit0 = block compressed (4x4); 0x210 and 0x280 select the extra colour/alpha planes used by the ATEX block passes."
+  },
+  "0x141c801a0": {
+   "name": "ImgFmt_InfoTable",
+   "comment": "ImgFmt_InfoTable: stride 3 dwords per GR_FORMAT; [0] = bits per pixel (see ImgFmt_GetBitCount)."
+  },
+  "0x142581b20": {
+   "name": "ImgFmt_Names",
+   "comment": "ImgFmt_Names: wchar_t*[38], ArenaNet's own label for each GR_FORMAT (L\"ARGB 8888\", L\"DXT5\", L\"BC7\", ...). Read by ImgFmt_GetName."
+  },
+  "0x1420a0950": {
+   "name": "Base64_AlphabetStd",
+   "comment": "Standard Base64 alphabet (A-Za-z0-9+/). Passed into Base64_EncodeCore."
+  },
+  "0x1420a09a0": {
+   "name": "Base64_AlphabetUrl",
+   "comment": "URL-safe Base64 alphabet (A-Za-z0-9-_). No xrefs in this build."
+  },
+  "0x1420a09f0": {
+   "name": "Base64_DecodeLut",
+   "comment": "Base64 decode LUT: character -> 6-bit value. 127 marks '=' padding (ends the stream); entries for invalid characters abort the decode."
+  },
+  "0x1420b5738": {
+   "name": "Token_Base23Alphabet",
+   "comment": "23 chars \"abcdefghiklmnopvrstuwxy\" - no j, q or z. Indexed by Token_Decode32."
+  },
+  "0x1420a2d40": {
+   "name": "Crc32_Table",
+   "comment": "256-entry reflected CRC-32 table (poly 0xEDB88320). Used by Crc32."
+  },
+  "0x1420a3940": {
+   "name": "Crc32C_Table",
+   "comment": "256-entry CRC-32C table (poly 0x82F63B78). Software fallback for Crc32C."
+  },
+  "0x1427f1628": {
+   "name": "g_HasSse42Crc",
+   "comment": "Nonzero when the CPU supports the SSE4.2 CRC32 instruction; selects Crc32C's fast path."
+  },
+  "0x1425ed7c0": {
+   "name": "ChatLink_DecoderTable",
+   "comment": "ChatLink_DecoderTable: 17 function pointers indexed DIRECTLY by the chat-link header byte (0x00..0x10). Entry 17 does not exist - the classifier returns 17 to mean 'invalid' and the dispatcher checks for it before indexing."
+  },
+  "0x141c92ac0": {
+   "name": "ImgAtex_RleHuffTable",
+   "comment": "ImgAtex_RleHuffTable: 64 x (codeLength, value) byte pairs, indexed by the TOP 6 BITS\nof the bit buffer (bitBuf >> 58). Consume codeLength bits, take value.\n  idx 32..63  code 0        1 bit   -> value 0\n  idx 16..31  code 10       2 bits  -> value 17\n  idx  0..15  code 11nnnn   6 bits  -> value 16,15,...,1\nByte order is (LENGTH, VALUE) - proven by use: the decoder shifts the bit buffer left by\nImgAtex_RleHuffTable[2*i] and uses ImgAtex_RleHuffTable[2*i+1] as the symbol.\nThis is the table the older notes recorded at byte_141C86390 and left unresolved."
+  },
+  "0x142134680": {
+   "name": "TextDecode_SymbolTable",
+   "comment": "31 wide chars used for bit-unpack symbols 1..31: \"0123456strnum()[]<>%#/:-'\\\" ,.!\\n\"\nIndexed as TextDecode_SymbolTable[sym-1]. Symbol 0 terminates; >= 0x20 is a literal\ncharacter computed as sym + baseChar - 32."
+  },
+  "0x1420a3d90": {
+   "name": "CptRc4_Vtable",
+   "comment": "CptRc4 vtable. [0] encrypt and [1] decrypt BOTH point at CptRc4_Crypt (RC4 is symmetric);\n[4] = CptRc4_SetKey, [5] = CptRc4_GetIv."
+  },
+  "0x141c94420": {
+   "name": "s_kTexCoordRemap",
+   "comment": "dword[8] = {10,11,12,13,14,15,16,17} - GrFvf texcoord channel -> bgfx Attrib::TexCoord0..7.\nIDA had auto-typed this as the string \"\\n\" because the first entry is 10."
+  }
+ },
+ "inline_comments": {
+  "0x140b86d97": "THE CONTAINER TAG IS WRITTEN HERE AND NEVER READ.\ncontainerTag (ATEC=1 ATEP=2 ATEU=4 ATET=0x20) -> decoder+0x4C.\nThis is the ONLY access to +0x4C in the whole of ImgAtex_Decode, and it is a store.\nNothing loads it back, so the container magic cannot influence a single output pixel:\nan .atep decodes byte-for-byte the same as an .atex.",
+  "0x140da2a98": "THE MAIN DECISION OF THE WHOLE DECOMPRESSOR.\nsymbol < 0x100  -> it is a plain byte, write it straight to the output.\nsymbol >= 0x100 -> it is a 'go back and repeat' instruction; the next steps read\n                   how MANY bytes to repeat (length) and how FAR BACK to start\n                   (distance), then copy that run forward.",
+  "0x140da2c9b": "Turn the distance symbol into an actual byte distance:\n    distance = Cmp_DistBase[symbol] + (however many extra bits Cmp_DistExtraBits[symbol] says)\nThe copy then starts at outPtr - (distance + 1). Because the copy is byte-by-byte and\nforward, a short distance deliberately repeats bytes it has only just written - that is\nhow long runs of the same pattern get compressed down to a few bits.",
+  "0x140da2da0": "The copy loop. Reads one byte at a time from outPtr-(distance+1) and appends it.\nOverlapping on purpose: when distance is small the loop re-reads bytes it just wrote,\nwhich is how a long repeated run is reproduced from a tiny code."
+ }
+}

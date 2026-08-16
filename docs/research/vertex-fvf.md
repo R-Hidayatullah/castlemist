@@ -1,3 +1,13 @@
+> **Addresses here are from an older build and no longer resolve (checked 2026-08-16).**
+> The analysis was re-verified and holds. Current symbols: [[gw2-render-asset-pipeline]] —
+> `GrFvf_BuildVertexLayout` @ `0x140B9C310`, `s_kTexCoordRemap` @ `0x141C94420`,
+> `BgfxShaderD3D11_Create` @ `0x140B5E890`.
+>
+> Two additions: `GrFvf_ToString` (GrFvf.cpp:1659) names each bit with a letter
+> (`p w i n c t b f`), independently confirming section 4.1; and the FVF validity asserts
+> in section 4.5 are **duplicated across several .cpp files**, so one copy lives in
+> `GrCloud.cpp` — don't identify the layout builder by those strings alone.
+
 # GW2 — Vertex Shader & GrFvf (Flexible Vertex Format) — Catatan Reverse Engineering
 
 > Sumber: `Gw2-64-disable-aslr.exe.i64` (Guild Wars 2, x64)

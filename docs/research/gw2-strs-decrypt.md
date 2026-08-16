@@ -7,6 +7,15 @@ metadata:
   originSessionId: 6f515566-5d5a-4a00-b35a-d3b38336c11f
 ---
 
+> **Addresses here are from an older build and no longer resolve (checked 2026-08-16).**
+> Everything else in this note was re-verified against the current client and stands.
+> Current symbols: [[gw2-strs-crypt-symbol-map]] — `TextDecode_DecodeRecord` @ `0x1410DBA40`,
+> `CptRc4_Crypt` @ `0x140DAB0F0`, `Cpt_ExpandKeyTo20` @ `0x140DAAE60`,
+> `TextKey_Insert` @ `0x1410D79A0`.
+>
+> **Good news for `gw2app/hook/`: both byte signatures below still match this build, one
+> hit each.** They did not need re-deriving.
+
 GW2 "packed"/password strs decryption, reversed from Gw2-64 (IDB `Gw2-64-disable-aslr.exe.i64`, imagebase 0x140000000). Answers why gw2mcp marks packed records `confirmed=false`.
 
 **cntc text chunks**: fourccs `txtm`, `txtp`, `txtv`, `txtV`, `vari`. Registered/torn down in `sub_141901000` (atexit, via `sub_140206D90`) on 4 manager globals (txtm=`14256E9F8`, txtp=`14256EA00`, vari=`14256EA08`, txtv=`14256EA10`). `txtp` fourcc only appears at `0x141901044` (reg fn) + descriptor tree at `0x1420f3be0`; NOT in gw2index (idx_find_chunk txtp=0 hits — index covers only ARMF/locl). Lazy getters on singleton `off_14256E990`: txtm=`sub_1410CAA40`(+72), txtV=`sub_1410CAAF0`(+88), txtv=`sub_1410CABA0`(+96); loader `sub_1410CBC80` (Language.cpp:501, driver `sub_1413C3730`).
