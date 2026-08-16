@@ -164,6 +164,11 @@ struct State {
     /// handle per name to call setUniform. Kept for the device's lifetime.
     std::map<std::string, bgfx::UniformHandle> uniforms;
 
+    /// Bounding-sphere centre in the MODEL's own space, kept so the render-space
+    /// centre can be re-derived whenever `base` changes. Storing only the mapped
+    /// result meant a trim change left the pivot behind in the old space.
+    float centreModel[3] = {0, 0, 0};
+    /// The same point through `base`. This is what the trackball pivots about.
     float centre[3] = {0, 0, 0};
     float radius = 1.0f;
     /// Model -> render space (axis conversion + the per-model trim), WITHOUT
@@ -239,6 +244,17 @@ void buildBase() {
     float trim[16];
     bx::mtxRotateXYZ(trim, bx::toRad(g.rotTrim[0]), bx::toRad(g.rotTrim[1]), bx::toRad(g.rotTrim[2]));
     bx::mtxMul(g.base, trim, axisFix);
+
+    // The pivot moves with the basis. Re-deriving it here rather than at load
+    // time is the whole point: changing the trim (the right-click flip) rebuilds
+    // `base`, and a centre still measured through the OLD base leaves the
+    // trackball rotating about a point the model no longer occupies -- the model
+    // then swings in a wide arc across the viewport instead of turning in place.
+    const bx::Vec3 c =
+        bx::mul(bx::Vec3(g.centreModel[0], g.centreModel[1], g.centreModel[2]), g.base);
+    g.centre[0] = c.x;
+    g.centre[1] = c.y;
+    g.centre[2] = c.z;
 }
 
 /// Folds the trackball into the world matrix, rotating about the model's own
@@ -411,17 +427,17 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
             lo[i] = std::min(lo[i], gs.minB[i]);
             hi[i] = std::max(hi[i], gs.maxB[i]);
         }
-    const float centreModel[3] = {(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
+    g.centreModel[0] = (lo[0] + hi[0]) * 0.5f;
+    g.centreModel[1] = (lo[1] + hi[1]) * 0.5f;
+    g.centreModel[2] = (lo[2] + hi[2]) * 0.5f;
     g.radius = 0.0f;
     for (int i = 0; i < 3; ++i) g.radius = std::max(g.radius, (hi[i] - lo[i]) * 0.5f);
     if (!(g.radius > 0.0f)) g.radius = 1.0f;
 
-    // Centre is measured through `base` only -- the axis conversion and the
-    // trim -- because the trackball then rotates ABOUT that centre. Folding the
-    // rotation in first would make the pivot chase its own result.
+    // buildBase maps centreModel through the new basis. The pivot is measured
+    // through `base` only -- never through the trackball -- or it would chase
+    // its own result.
     buildBase();
-    const bx::Vec3 c = bx::mul(bx::Vec3(centreModel[0], centreModel[1], centreModel[2]), g.base);
-    g.centre[0] = c.x; g.centre[1] = c.y; g.centre[2] = c.z;
     // A new model gets a fresh orientation; leaving the old trackball on would
     // show the next model at whatever angle the last one was left at.
     bx::mtxIdentity(g.rot);
