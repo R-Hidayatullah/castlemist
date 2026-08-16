@@ -1934,7 +1934,9 @@
   "0x140b59f70": {
    "name": "BgfxVertexLayout_Init",
    "comment": "bgfx::VertexLayout construction / reset.",
-   "lvars": {},
+   "lvars": {
+    "0": "layout"
+   },
    "labels": {}
   },
   "0x140b5a9f0": {
@@ -1953,7 +1955,10 @@
   "0x140b5bda0": {
    "name": "BgfxVertexLayout_Begin",
    "comment": "bgfx::VertexLayout::begin.",
-   "lvars": {},
+   "lvars": {
+    "0": "layout",
+    "1": "renderer"
+   },
    "labels": {}
   },
   "0x140b5e890": {
@@ -1969,13 +1974,18 @@
   "0x140b669c0": {
    "name": "BgfxVertexLayout_End",
    "comment": "bgfx::VertexLayout::end - finalises offsets and the stride.",
-   "lvars": {},
+   "lvars": {
+    "0": "layout"
+   },
    "labels": {}
   },
   "0x140b9c310": {
    "name": "GrFvf_BuildVertexLayout",
    "comment": "Arena\\Engine\\Gr\\Bgfx\\BgfxBuffer.cpp:406  GrFvf bitmask -> bgfx::VertexLayout.\nTHE definitive element order: the sequence of Add calls below IS the byte order in the\nvertex. (attrib, num, type, normalized)  type: 0=Uint8 2=Int16 3=Half 4=Float\n  0x00000001 POSITION        (0 Position,  3, Float)\n  0x08000000 POSITION4       (0 Position,  4, Float)\n  0x00000002 WEIGHTS         (9 Weight,    4, Uint8, normalized)\n  0x00000004 GROUP           (8 Indices,   4, Uint8, RAW - bone indices)\n  0x00000008 NORMAL          (1 Normal,    3, Float)\n  0x04000000 NORMAL_C        (1 Normal,    4, Uint8, normalized)\n  0x10000000 POSITION_COMPRESSED -> also emitted as (1 Normal, 4, Uint8, normalized)\n  0x00000010 COLOR           (4 Color0,    4, Uint8, normalized)  BGRA order\n  0x00000020 TANGENT         (2 Tangent,   3, Float)\n  0x00000040 BITANGENT       (3 Bitangent, 3, Float)\n  0x00000080 TANGENT_FRAME   -> THREE adds: Normal/Tangent/Bitangent, each 4 x Uint8 norm\n  0x0000FF00 texcoords F32   (s_kTexCoordRemap[i], 2, Float)\n  0x00FF0000 texcoords F16   (s_kTexCoordRemap[i], 2, Half)\nTANGENT_FRAME is mutually exclusive with NORMAL|TANGENT|BITANGENT (asserted at :406).",
-   "lvars": {},
+   "lvars": {
+    "0": "out",
+    "1": "fvf"
+   },
    "labels": {}
   },
   "0x140b9d110": {
@@ -2028,22 +2038,28 @@
    "name": "BgfxShader_LoadFromAmat",
    "comment": "Arena\\Engine\\Gr\\Bgfx\\BgfxShader.cpp:698  load a shader package from a DAT FILE.\n  GrMat_GetShaderChunk(shaderId, 'BGFX' (0x58464742), version 3, &techniqueCount)\nThis is the other half of the shader story: MODL -> material -> AMAT file -> BGFX chunk.\nThen BgfxShader_BuildPasses walks the techniques/passes/effects.\nAsserts m_passes.Count() != 0.",
    "lvars": {
-    "0": "shaderObj",
+    "0": "shader",
+    "1": "grState",
     "2": "shaderId",
     "8": "ShaderChunk",
-    "10": "techniqueCount"
+    "10": "techniqueCountOut"
    },
    "labels": {}
   },
   "0x140bffb20": {
    "name": "BgfxShader_BuildPasses",
    "comment": "BgfxShader.cpp  walks the AMAT techniques -> passes -> effects and fills m_passes.",
-   "lvars": {},
+   "lvars": {
+    "0": "shader",
+    "1": "maxQuality",
+    "4": "m_data",
+    "12": "m_techniqueIndex"
+   },
    "labels": {}
   },
   "0x140cfbbd0": {
    "name": "ModelFile_GetLodGeosets",
-   "comment": "ModelFile.cpp  per-LOD geoset array accessor; asserts lodIndex < arrsize(m_geosets).",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  geosets for one LOD. Asserts lodIndex < arrsize(m_geosets) and\nsubmodelIndex < m_chunkGeom->meshCount.",
    "lvars": {},
    "labels": {}
   },
@@ -2056,8 +2072,8 @@
    "labels": {}
   },
   "0x140d4ddf0": {
-   "name": "ModelGranny_SampleTrackGroup",
-   "comment": "Granny animation sampling; bounds-checked against\nModelUtilGetGrannyAnim(&data)->TrackGroupCount.",
+   "name": "ModelAnimSubControl_BindUvTransformTracks",
+   "comment": "Arena\\Engine\\Model\\ModelAnimSubControlData.cpp:1052-1115\nRENAMED: the asserts name ModelAnimSubControlData.cpp, not ModelGrannyUtil.cpp, so the\nearlier ModelGranny_SampleTrackGroup label was wrong. This binds UV-transform sub-control\nentries to granny vector tracks: group->VectorTracks[trackIndex], stride 32.\nAsserts type < MODEL_ANIM_UV_TRANSFORM_TYPES (5), trackGroup < anim->TrackGroupCount,\ntrackIndex < group->VectorTrackCount.\nThis is where granny struct packing is provable: VectorTrackCount reads at +0x08 and\nVectorTracks at +0x0C, a QWORD on a 4-aligned offset.",
    "lvars": {},
    "labels": {}
   },
@@ -2096,6 +2112,938 @@
     "2": "sourcePixelsCount",
     "3": "quality"
    },
+   "labels": {}
+  },
+  "0x140af8ff0": {
+   "name": "GrGeoset_GetIndices",
+   "comment": "GrGeo.cpp  (geosetId, &indexCount, &vertexCountUsed) -> uint16* indices. GW2 geoset indices are always 16-bit.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140af9070": {
+   "name": "GrGeoset_GetVertices",
+   "comment": "Arena\\Engine\\Gr\\GrGeo.cpp  (geosetId, &vertexCount, &vertexBlob, &fvf) -> non-zero on success. The source side of BgfxBuffer_UploadGeoset.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b14fc0": {
+   "name": "BgfxTexture_ResolveFormat",
+   "comment": "BgfxTexture.cpp  Resolve GR_FORMAT (+0x0C) to the bgfx TextureFormat stored at +0x10.\nWarns when a supported actual format still maps to an unknown internal format, and\nwhen a depth format was expected but something else came back.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b15500": {
+   "name": "BgfxTexture_ReleaseLock",
+   "comment": "BgfxTexture.cpp  Free the DdiTextureLock. Asserts !(m_flags & DDI_TEXTURE_LOCKED) and !m_lock.",
+   "lvars": {
+    "0": "tex"
+   },
+   "labels": {}
+  },
+  "0x140b15750": {
+   "name": "BgfxTexture_Destroy",
+   "comment": "BgfxTexture.cpp  Remove a texture from the pool and destroy its bgfx handle. Warns \"Attempting to delete unknown texture.\"",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b15850": {
+   "name": "BgfxTexture_UploadLevels",
+   "comment": "BgfxTexture.cpp:1485-1489  decoded pixels -> GPU, the entry point for texture upload.\n(texture, startLevel, endLevel, srcFormat, srcBits, startSlice, endSlice, dims, ...)\nPer mip level it locks via BgfxTexture_Lock3d, converts each slice into the staging\nbuffer, then flushes with BgfxTexture_UnlockBoxes. srcFormat is asserted <= 0x25,\nwhich is the valid GR_FORMAT range (BgfxTextureIsValidFormat).",
+   "lvars": {
+    "48": "m_format"
+   },
+   "labels": {}
+  },
+  "0x140b16840": {
+   "name": "BgfxTexture_AddDirtyRect",
+   "comment": "BgfxTexture.cpp  Record a dirty rect for the next unlock. Asserts MathRectIsValid(rect).",
+   "lvars": {
+    "13": "m_format",
+    "16": "m_dimsY",
+    "17": "m_dimsX",
+    "34": "out",
+    "45": "outPitch"
+   },
+   "labels": {}
+  },
+  "0x140b16b20": {
+   "name": "BgfxTexture_CreateBgfxTexture",
+   "comment": "Arena\\Engine\\Gr\\Bgfx\\BgfxTexture.cpp:535/548/559  create the GPU texture.\nSwitches on m_type (+0x04): 0 DDI_TEXTURE_2D -> bgfx::createTexture2D,\n1 DDI_TEXTURE_3D -> createTexture3D (asserts m_levels == 1),\n2 DDI_TEXTURE_CUBE -> createTextureCube (asserts m_dims.x == m_dims.y).\nBuilds the 64-bit bgfx flags word from m_flags (+0x24): bit31->43, bit15->44,\nbit27->46, bit28(RENDER_TARGET)->47; MSAA sample count comes from config id 7\nwhen DDI_TEXTURE_MSAA is set. hasMips is forced off for SRGB or render targets.\nOn kInvalidHandle logs \"BGFX texture create failed\" and sets DDI_TEXTURE_CREATE_FAILED.",
+   "lvars": {
+    "0": "tex",
+    "5": "m_type",
+    "7": "m_dimsX",
+    "8": "m_numMips"
+   },
+   "labels": {}
+  },
+  "0x140b16d50": {
+   "name": "BgfxTexture_Lock3d",
+   "comment": "BgfxTexture.cpp  Lock a 3D mip. Same contract as BgfxTexture_Lock2d, asserts m_type == DDI_TEXTURE_3D.",
+   "lvars": {
+    "0": "tex",
+    "1": "level",
+    "2": "outPitch",
+    "3": "outSlice"
+   },
+   "labels": {}
+  },
+  "0x140b16f70": {
+   "name": "BgfxTexture_LockCube",
+   "comment": "BgfxTexture.cpp  Lock one cube face. Asserts m_type == DDI_TEXTURE_CUBE and face < GR_CUBEMAP_SIDES.",
+   "lvars": {
+    "0": "tex",
+    "1": "face",
+    "2": "level",
+    "3": "outPitch",
+    "4": "outSlice"
+   },
+   "labels": {}
+  },
+  "0x140b17180": {
+   "name": "BgfxTexture_Lock2d",
+   "comment": "BgfxTexture.cpp:596-615  Lock a 2D mip for CPU writes.\nAsserts !(m_flags & DDI_TEXTURE_LOCKED), m_type == DDI_TEXTURE_2D, level < m_levels,\nbgfx::isValid(m_handle). Allocates a DdiTextureLock of (bytes + 16) and returns the\nstaging area at +0x10; pitch/slice come back through outPitch/outSlice.\nFatal on a second lock: \"Attempting to take a second lock on a texture.\"",
+   "lvars": {
+    "0": "tex",
+    "1": "level",
+    "2": "outPitch",
+    "3": "outSlice"
+   },
+   "labels": {}
+  },
+  "0x140b17500": {
+   "name": "BgfxTexture_DownRes",
+   "comment": "BgfxTexture.cpp  Halve a render target via bgfx blit. Requires BGFX_CAPS_TEXTURE_BLIT and GetType() == DDI_TEXTURE_2D.",
+   "lvars": {
+    "20": "out"
+   },
+   "labels": {}
+  },
+  "0x140b17820": {
+   "name": "BgfxTexture_UpRes",
+   "comment": "BgfxTexture.cpp  Grow a texture to a higher res. Refuses to upscale render targets and validates both formats.",
+   "lvars": {
+    "27": "out"
+   },
+   "labels": {}
+  },
+  "0x140b17be0": {
+   "name": "BgfxTexture_UnlockBoxes",
+   "comment": "BgfxTexture.cpp  Unlock + upload the dirty boxes of a locked level. Asserts m_flags & DDI_TEXTURE_LOCKED.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b17f10": {
+   "name": "BgfxTexture_UnlockRects",
+   "comment": "BgfxTexture.cpp  Unlock + upload the dirty rects of a locked level.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b18290": {
+   "name": "BgfxTexture_UploadLockedRect",
+   "comment": "BgfxTexture.cpp  Copy one rect out of the lock staging buffer into a bgfx update. Asserts rectMemStart + rectMemSize <= m_lock->bytes.",
+   "lvars": {
+    "20": "out"
+   },
+   "labels": {}
+  },
+  "0x140b3f500": {
+   "name": "ImgCalc_LevelPitchAndBytes",
+   "comment": "Arena\\Engine\\Gr\\Img\\ImgCalc.cpp  (format) -> row pitch, with the level byte count returned through the out param. Used by every BgfxTexture lock path.",
+   "lvars": {
+    "0": "format",
+    "8": "BitCount",
+    "23": "out"
+   },
+   "labels": {}
+  },
+  "0x140b62a20": {
+   "name": "bgfx_createTexture2D",
+   "comment": "bgfx::createTexture2D(width, height, hasMips, numLayers, format, flags, mem, numMips).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b62d20": {
+   "name": "bgfx_createTexture3D",
+   "comment": "bgfx::createTexture3D(width, height, depth, hasMips, format, flags, mem, numMips).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b63360": {
+   "name": "bgfx_createTextureCube",
+   "comment": "bgfx::createTextureCube(size, hasMips, numLayers, format, flags, mem, numMips).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b643f0": {
+   "name": "bgfx_createVertexBuffer",
+   "comment": "bgfx::createVertexBuffer(mem, layout, flags) -> VertexBufferHandle. layout is &GrFvfVertexLayout::layout, i.e. the cached entry + 4.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b64e80": {
+   "name": "bgfx_destroyVertexBuffer",
+   "comment": "bgfx::destroyVertexBuffer(handle).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b70260": {
+   "name": "bgfx_makeRef",
+   "comment": "bgfx::makeRef(data, size, releaseFn, userData) -> const Memory*. GW2 passes BgfxBuffer_ReleaseVertexMemory as releaseFn so the staging block is freed after the frame that consumed it.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b7e2d0": {
+   "name": "bgfx_topologyConvert",
+   "comment": "bgfx::topologyConvert(conversion, dst, dstSize, indices, numIndices, index32). GW2 calls it with conversion 2 to build a line list from the tri list for wireframe/debug draw.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9cd70": {
+   "name": "BgfxBuffer_CreateIndexBuffer",
+   "comment": "BgfxBuffer.cpp  Allocate an index buffer wrapper tagged with the current frame number.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9cfc0": {
+   "name": "BgfxBuffer_ReleaseVertexMemory",
+   "comment": "BgfxBuffer.cpp  bgfx::ReleaseFn for the vertex staging block handed to bgfx_makeRef.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9cfd0": {
+   "name": "BgfxBuffer_FindOrCreateVertexCache",
+   "comment": "BgfxBuffer.cpp  Look up, or build, the cached vertex buffer for (geosetId, fvf).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140b9fa10": {
+   "name": "BgfxBuffer_CommitIndexRange",
+   "comment": "BgfxBuffer.cpp  Commit a reserved index range; asserts size == tvb->size on the transient path.",
+   "lvars": {
+    "5": "Ref"
+   },
+   "labels": {}
+  },
+  "0x140b9fe10": {
+   "name": "BgfxBuffer_AllocIndexRange",
+   "comment": "BgfxBuffer.cpp  Reserve `count` uint16 indices in an index buffer and return the write pointer.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140ba8ca0": {
+   "name": "GrFvf_ResolveTargetFvf",
+   "comment": "GrFvf.cpp  (sourceFvf, requestFlags) -> the fvf actually used for the GPU buffer. Drops GR_FVF_GROUP for >255-bone geosets and folds NORMAL|WEIGHTS into GR_FVF_NORMAL_C.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140ba8d20": {
+   "name": "GrFvf_PackVertices",
+   "comment": "GrFvf.cpp  Pack source vertices into the destination fvf layout, one vertex at a time. The heavy converter dispatch lives in GrFvf_ConvertVertices.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d556b0": {
+   "name": "ModelFileFormatGranny_VertexTypeToFvf",
+   "comment": "Arena\\Engine\\ModelFileFormat\\ModelFileFormatGrannyUtils.cpp:108/111\nGranny vertex type -> GR_FVF bitmask. Walks the granny_data_type_definition member\nlist and strcmp()s each Name against s_grannyAttribToFvf (0x141EE7CC0, 28 entries x\n24 bytes), OR-ing the fvf bits together. Fatal on an unknown name; asserts at most\n16 elements (MAX_GRANNY_VERTEX_ELEMENTS).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7b0a0": {
+   "name": "Video_Open",
+   "comment": "Arena\\Engine\\Video\\Video.cpp  load bink2w64.dll, resolve 22 entry points by name\nfrom the length-prefixed blob at 0x1425454DA via the table at 0x1425452B8, then\nBinkOpen the movie. Logs \"Failed to open Bink, {}\",\n\"BinkSoundUseDirectSound failed, {}\", \"BinkStartAsyncThread failed, {}\".",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140a66e10": {
+   "name": "CinVideo_SetYuvShaderConstants",
+   "comment": "Arena\\Engine\\Cinema\\Content\\CinVideo.cpp  upload the YUV->RGB conversion constants\n(consta, crc, cbc, adj, yscale) for the video blit shader.",
+   "lvars": {
+    "20": "si128"
+   },
+   "labels": {}
+  },
+  "0x140a673b0": {
+   "name": "CinVideo_Render",
+   "comment": "",
+   "lvars": {
+    "3": "si128"
+   },
+   "labels": {}
+  },
+  "0x140c2c140": {
+   "name": "Map_AcquireFileTable",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c2e0f0": {
+   "name": "Map_CreateSubsystems",
+   "comment": "Arena\\Engine\\Map\\Map.cpp  build the per-map subsystems. The literal names it\nconstructs are the map's own module list: MapEnvironment, propContext, MapAreas,\nMapAudio, MapBlock, MapDecal.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c31c30": {
+   "name": "MapData_RegisterModule",
+   "comment": "Arena\\Engine\\Map\\MapData.cpp  register a map module. Asserts mapType < MAP_TYPES\nand moduleInfo.id < s_maxModuleId.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c320b0": {
+   "name": "MapData_GetModule",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c32180": {
+   "name": "MapData_AddModule",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c32330": {
+   "name": "MapData_DependencySortModules",
+   "comment": "Arena\\Engine\\Map\\MapData.cpp  topologically sort the map modules by dependency.\nFails hard with \"Dependency-sorting failed.\" -- a module cycle is fatal, not skipped.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c32610": {
+   "name": "MapData_GetModuleCount",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140c32680": {
+   "name": "MapData_GetMap",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cf9670": {
+   "name": "ModelFile_ReportLeaks",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfaa70": {
+   "name": "ModelFile_BeginLoad",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  start the load. Asserts m_loadStage == LOAD_STAGE_START and\nm_asset == nullptr; logs \"Model '%s' file not found\" when the dat lookup fails.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cface0": {
+   "name": "ModelFile_OnMaterialsLoaded",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  material load completed. Asserts m_loadStage == LOAD_STAGE_MATERIAL_LOADING.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfb6b0": {
+   "name": "ModelFile_ResolveAnimationBanks",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfbb60": {
+   "name": "ModelFile_GetSubmodelGeoset",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfc650": {
+   "name": "ModelFile_BindSkeleton",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  bind to a skeleton model file; asserts skeletonFile->IsReady()\nand skeletonFile->GetSkeletonData().",
+   "lvars": {
+    "90": "Src"
+   },
+   "labels": {}
+  },
+  "0x140cfd410": {
+   "name": "ModelFile_Release",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfddb0": {
+   "name": "ModelFile_CreateVertexBuffers",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  build the GPU vertex buffers; asserts allocVertBytes == sizeof(vb).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfe0e0": {
+   "name": "ModelFile_AddPreload",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfe3b0": {
+   "name": "ModelFile_Merge",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  merge the parsed data into the live model. Asserts\nm_loadStage == LOAD_STAGE_MERGING.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfe790": {
+   "name": "ModelFile_ManagerInit",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfe870": {
+   "name": "ModelFile_FindByPackFile",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cfebf0": {
+   "name": "ModelFile_LoadMaterials",
+   "comment": "",
+   "lvars": {
+    "59": "Src"
+   },
+   "labels": {}
+  },
+  "0x140cff2c0": {
+   "name": "ModelFile_ParsePackFile",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  parse a loaded packfile into the model.\nRejects with \"Model '%s' is not a valid model file\". Walks the chunk table for\ngeometry, materials, skeleton reference and mesh emitters.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140cff8a0": {
+   "name": "ModelFile_LoadAnimations",
+   "comment": "Arena\\Engine\\Model\\ModelFile.cpp  load the animation banks. Reports \"Bad animation data in: {}\".",
+   "lvars": {
+    "59": "lpCriticalSection",
+    "74": "p_lpCriticalSection"
+   },
+   "labels": {}
+  },
+  "0x140d00280": {
+   "name": "ModelFile_ReleasePreload",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d00cb0": {
+   "name": "ModelFile_Destroy",
+   "comment": "",
+   "lvars": {
+    "21": "lpCriticalSection"
+   },
+   "labels": {}
+  },
+  "0x140d01070": {
+   "name": "ModelFile_IsMerging",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d505e0": {
+   "name": "ModelFileFormat_ReadVertexBuffer",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d50cd0": {
+   "name": "ModelFileFormat_GetGrannyAnim",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d50d70": {
+   "name": "ModelFileFormat_BuildCompoundAnimation",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7a650": {
+   "name": "Video_DecodeNextFrame",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7a830": {
+   "name": "Video_RegisterFrameBuffers",
+   "comment": "Video.cpp  BinkRegisterFrameBuffers. Asserts decodeBufferFrameCount <= 2 and\nhasY && hasCr && hasCb -- planar YUV, three planes, double buffered.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7ac30": {
+   "name": "Video_Release",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7acc0": {
+   "name": "Video_Close",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7b570": {
+   "name": "Video_BinkAlloc",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7b5f0": {
+   "name": "Video_BinkFree",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7b750": {
+   "name": "BinkAssetIo_Read",
+   "comment": "Arena\\Engine\\Video\\BinkAssetIo.cpp  Bink read callback backed by the asset system,\nso movies stream out of the dat rather than off disk.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7c0e0": {
+   "name": "BinkAssetIo_Fill",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140d7c200": {
+   "name": "BinkAssetIo_Open",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de2430": {
+   "name": "Packfile_AssertNoPointerOffsets",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de2990": {
+   "name": "Packfile_ConvertPointerSize",
+   "comment": "Arena\\Services\\Packfile\\Packfile.cpp  widen or narrow every pointer field in a chunk.\nsizeFrom and sizeTo are each asserted to be 4 or 8. This is what lets a 32-bit\nauthored packfile load into the 64-bit client.",
+   "lvars": {
+    "34": "si128"
+   },
+   "labels": {}
+  },
+  "0x140de3810": {
+   "name": "Packfile_DefTypeSize",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de3880": {
+   "name": "Packfile_ReportOffsetConversionFailed",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de3980": {
+   "name": "Packfile_Init",
+   "comment": "Arena\\Services\\Packfile\\Packfile.cpp  :2222  parse a packfile in memory.\nAsserts hdr->signature == PACKFILE_SIGNATURE, which is 18000 == 0x4650 == 'PF'\n(a uint16, not a fourcc). Header is 12 bytes; the first chunk sits at\nbuffer + hdr->headerSize. Then walks the chunk list:\n  next   = &chunk.version + chunk.nextChunkOffset\n  dataSz = chunk.nextChunkOffset - chunk.headerSize + 8\nand hashes each chunk magic into the chunk map. Zero-length chunks are dropped\nwith \"PackFile: Discarding zero byte chunk %u\".\nHeader flag bit2 selects 8-byte pointer fields; when absent the chunk is run\nthrough Packfile_ConvertPointerSize(4 -> 8).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de3f90": {
+   "name": "Packfile_ReportStaleExporter",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de4070": {
+   "name": "Packfile_ApplyFilters",
+   "comment": "Arena\\Services\\Packfile\\Packfile.cpp  run the registered per-chunk filter chain (version upgrades).\nAsserts chunk->readLock == 0 and that filter[0] has a null filterFunc.",
+   "lvars": {
+    "64": "Src",
+    "70": "Size"
+   },
+   "labels": {}
+  },
+  "0x140de5ad0": {
+   "name": "Packfile_LoadById",
+   "comment": "Arena\\Services\\Packfile\\Packfile.cpp  load a packfile by fileId. Logs \"PackFileLoad %x failed to load with error code %d.\"",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de5c70": {
+   "name": "Packfile_LoadByName",
+   "comment": "Arena\\Services\\Packfile\\Packfile.cpp  load a packfile by name. Logs \"PackFileLoad %s failed to load with error code %d.\"",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de6700": {
+   "name": "Packfile_MatchTypes32",
+   "comment": "",
+   "lvars": {
+    "56": "Src"
+   },
+   "labels": {}
+  },
+  "0x140de70d0": {
+   "name": "Packfile_MatchTypes64",
+   "comment": "",
+   "lvars": {
+    "51": "Src",
+    "53": "retaddr"
+   },
+   "labels": {}
+  },
+  "0x140de7a30": {
+   "name": "Packfile_ConvertField32",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de7ed0": {
+   "name": "Packfile_ConvertField64",
+   "comment": "",
+   "lvars": {
+    "24": "retaddr"
+   },
+   "labels": {}
+  },
+  "0x140de8390": {
+   "name": "Packfile_CheckChunkVersion",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de8440": {
+   "name": "Packfile_AcquireChunkReadLock",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de84b0": {
+   "name": "Packfile_ReleaseChunkReadLock",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de8620": {
+   "name": "Packfile_GetChunkForRead",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de8ee0": {
+   "name": "Packfile_GetRootChunk",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de9100": {
+   "name": "Packfile_FixupPointers",
+   "comment": "Arena\\Services\\Packfile\\Packfile.cpp  turn stored offsets into real pointers for one chunk.\nAsserts !(chunk->flags & CHUNK_FLAG_RAW_POINTERS) and chunkTerm <= term.",
+   "lvars": {
+    "39": "Size",
+    "44": "Src"
+   },
+   "labels": {}
+  },
+  "0x140de9600": {
+   "name": "Packfile_CheckChunkTerm",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de96c0": {
+   "name": "Packfile_GetChunkForWrite",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140de9ab0": {
+   "name": "Packfile_FindFilter",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140dea0a0": {
+   "name": "Packfile_AppendChunk",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x140dea4d0": {
+   "name": "Packfile_LogTypeMismatch32",
+   "comment": "",
+   "lvars": {
+    "4": "Src"
+   },
+   "labels": {}
+  },
+  "0x140dea830": {
+   "name": "Packfile_LogTypeMismatch64",
+   "comment": "",
+   "lvars": {
+    "4": "Src"
+   },
+   "labels": {}
+  },
+  "0x140deb0a0": {
+   "name": "Packfile_MarkOffsets32",
+   "comment": "",
+   "lvars": {
+    "82": "Src"
+   },
+   "labels": {}
+  },
+  "0x140deba40": {
+   "name": "Packfile_MarkOffsets64",
+   "comment": "",
+   "lvars": {
+    "82": "Src"
+   },
+   "labels": {}
+  },
+  "0x140decc60": {
+   "name": "Packfile_WriteArrayCount32",
+   "comment": "",
+   "lvars": {
+    "4": "Src"
+   },
+   "labels": {}
+  },
+  "0x140dece80": {
+   "name": "Packfile_WriteArrayCount64",
+   "comment": "",
+   "lvars": {
+    "4": "Src"
+   },
+   "labels": {}
+  },
+  "0x140ded070": {
+   "name": "Packfile_WalkDefTypes",
+   "comment": "",
+   "lvars": {
+    "44": "m",
+    "48": "Src"
+   },
+   "labels": {}
+  },
+  "0x141475f40": {
+   "name": "ScnCli_GetChatterLineDuration",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141476420": {
+   "name": "ScnCli_BuildChatterText",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141476820": {
+   "name": "ScnCli_ShowChatterLine",
+   "comment": "Gw2\\Game\\Scene\\Cli\\ScnCliContext.cpp:222,317  THE SUBTITLE PATH.\nA \"chatter line\" is a spoken line with an on-screen caption. Takes a\ncodedSpeakerName + codedText pair (both still text-coded; TextDecode_* resolves\nthem) and a chatterLineType asserted <= Content::CHATTER_LINE_TYPES (201).\nDuration comes from ScnCli_GetChatterLineDuration, picking a near or far value\ndepending on whether the speaker is the player's current target.\nType 7 is special-cased: 30 s suppression window instead of 60 s, and a 500 ms\nre-show delay instead of 5000 ms.\nIf the speaker agent exists the line goes to its overhead bubble; otherwise it is\ndrawn as a standalone caption. \"Cinecaption\" (0x1422E52A0) is the font style used.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141476c50": {
+   "name": "ScnCli_ShowChatterLineWithSpeaker",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141566b40": {
+   "name": "Archive_HashInsertFileId",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  insert a fileId into the hash chain. fileId must not be FILE_ID_UNUSED.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141566e90": {
+   "name": "Archive_AllocStreamEntry",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  :2089-2096  allocate an entry and link it into a stream chain.\nWalks alloc.nextStream at +0x10 until 0. Proves the ArchiveAllocEntry layout:\nflags at +0x0E (FLAG_ENTRY_USED 1, FLAG_FIRST_STREAM 2), stream at +0x0F.\nINDEX_FIRST_FILE is 16 (the assert compares against a literal 0x10).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141567100": {
+   "name": "Archive_InitReservedEntry",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141567210": {
+   "name": "Archive_FreeSpaceLessByOffsetF2",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1415672a0": {
+   "name": "Archive_FreeSpaceLessByOffsetF1",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141567430": {
+   "name": "Archive_GetEntryOffset",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141567af0": {
+   "name": "Archive_FindMftByFileId",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141567e00": {
+   "name": "Archive_GetEntryCrc",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141567f50": {
+   "name": "Archive_GetEntryExtraBytes",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141568110": {
+   "name": "Archive_BeginModification",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141568370": {
+   "name": "Archive_GetMftEntry",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141568470": {
+   "name": "Archive_CoalesceFreeSpace",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  merge adjacent free spans. Every span size is asserted to be a\nwhole number of blocks: curr->size == MathNextMultiplePow2(curr->size, m_blockSize).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141568770": {
+   "name": "Archive_GetEntryAlloc",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141568910": {
+   "name": "Archive_ByteSwapEntryArray",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141568b40": {
+   "name": "Archive_Flush",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141568e50": {
+   "name": "Archive_HashRemoveFileId",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1415690d0": {
+   "name": "Archive_ReleaseMftRef",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141569250": {
+   "name": "Archive_CollectStreamChain",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141569530": {
+   "name": "Archive_SumStreamChainSize",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x1415696a0": {
+   "name": "Archive_ScanMftRefs",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141569870": {
+   "name": "Archive_FreeStreamChain",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141569a40": {
+   "name": "Archive_InitHashTable",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141569c70": {
+   "name": "Archive_Init",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  construct. blockSize must be a power of two; the free-space gap is asserted\nblock-aligned (!(gap & (blockSize - 1))).",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141569e80": {
+   "name": "Archive_AssertClean",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x141569f90": {
+   "name": "Archive_ReleaseSpace",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156a110": {
+   "name": "Archive_RoundUpToBlock",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156a170": {
+   "name": "Archive_ScanAndRepair",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  scan the whole archive and rebuild what is inconsistent.\nLogs \"Repairing corrupt archive\" and reports progress in two phases.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156ae30": {
+   "name": "Archive_ValidateDirectoryVsMft",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  cross-check the directory against the MFT in both directions.\n\"Entry %u exists in directory but not mft\" / \"...in mft but not directory\".",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156b590": {
+   "name": "Archive_Open",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  open an existing archive. Asserts size > offsetToFirstFile, then reads the\ndescriptor + entry array and rebuilds the fileId hash. Entry point for Gw2.dat.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156bcf0": {
+   "name": "Archive_GetEntrySize",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156bed0": {
+   "name": "Archive_GrowEntryArray",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156bf40": {
+   "name": "Archive_ReallocEntry",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  :2653-2676  (re)allocate the payload for one MFT entry.\nWrites ArchiveAllocEntry.offset/size/extraBytes/crc at +0/+8/+0xC/+0x14.\nAsserts extraBytes <= size and !IsFixedLocation(mftIndex) || !crc, where\nIsFixedLocation is mftIndex == 1.",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156c250": {
+   "name": "Archive_GetReservedEntry",
+   "comment": "",
+   "lvars": {},
+   "labels": {}
+  },
+  "0x14156c3a0": {
+   "name": "Archive_WriteMftAndDescriptor",
+   "comment": "Arena\\Services\\Archive3\\Archive.cpp  :2723  write the MFT back.\nAsserts descriptor.signature == SIGNATURE (0x1A75694D). CRC32Cs the 72-byte\ndescriptor, then continues the CRC over entries [4 .. count) -- deliberately\nskipping ARCHIVE_INDEX_MFT (3), which is where the result is stored.\nBumps descriptor.sequence, skipping (unsigned)-1.",
+   "lvars": {},
    "labels": {}
   }
  },
@@ -2186,7 +3134,7 @@
   },
   "0x141c94420": {
    "name": "s_kTexCoordRemap",
-   "comment": "dword[8] = {10,11,12,13,14,15,16,17} - GrFvf texcoord channel -> bgfx Attrib::TexCoord0..7.\nIDA had auto-typed this as the string \"\\n\" because the first entry is 10."
+   "comment": "BgfxBuffer.cpp  s_kTexCoordRemap: BGFX_ATTRIB_TEXCOORD0..7, indexed by UV set number."
   },
   "0x141d4b8e0": {
    "name": "ImgBc7_Weights2",
@@ -2199,6 +3147,22 @@
   "0x141d4b900": {
    "name": "ImgBc7_Weights4",
    "comment": "BC7/BPTC 4-bit index interpolation weights {0,4,9,...,60,64}."
+  },
+  "0x141ee7cc0": {
+   "name": "s_grannyAttribToFvf",
+   "comment": "ModelFileFormatGrannyUtils.cpp  granny attribute name -> GR_FVF bit.\n28 x GrannyAttribToFvf {char* name; u32 fvfBit; u32 grannyMemberType; u32 componentCount; u32 pad}.\nWalked by ModelFileFormatGranny_VertexTypeToFvf."
+  },
+  "0x141c84d18": {
+   "name": "bgfx_s_attribTypeSize",
+   "comment": "vendored bgfx s_attribTypeSize[RendererType][AttribType][4].\n20 bytes per renderer => AttribType::Count == 5 {Uint8,Uint10,Int16,Half,Float}.\nUint8 {1,2,4,4} Uint10 {4,4,4,4} Int16 {2,4,8,8} Half {2,4,8,8} Float {4,8,12,16}"
+  },
+  "0x141c92844": {
+   "name": "bgfx_s_attribTypeAsIntAllowed",
+   "comment": "vendored bgfx asInt-allowed table, \"\\x1\\x1\\x1\\x0\\x0\" - one byte per AttribType."
+  },
+  "0x141c922c0": {
+   "name": "bgfx_aVersionBanner",
+   "comment": "vendored bgfx version banner. The two immediates at the call site (0x140B7D324)\nare BGFX_API_VERSION = 0x80 (128) and BGFX_REV_NUMBER = 0x2247 (8775);\nthe SHA in the string is a476c5b9a42d3779af59a0099d4d222fa8898d36."
   }
  },
  "inline_comments": {

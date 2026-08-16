@@ -144,12 +144,53 @@ interleaved stream.
 | --- | --- |
 | `0x141904B60` | `GrannyFvf_Register` |
 | `0x140D11310` | `Model_GetGrannyModel` |
-| `0x140D4DDF0` | `ModelGranny_SampleTrackGroup` |
+| `0x140D4DDF0` | `ModelAnimSubControl_BindUvTransformTracks` |
 
 `GrannyFvf_Register` overflows with *"Granny FVF Spare list to Small. Locate and increase
 MAX_GRANNY_VERTEX_FORMAT_TYPES…"* — Granny maintains a **separate** vertex-format table
 from GrFvf. Do not conflate the two when parsing; see also [[gw2-granny-64bit]] on the
 32- vs 64-bit granny blob trap.
+
+> **Correction, 2026-08-16.** `0x140D4DDF0` was previously labelled
+> `ModelGranny_SampleTrackGroup`. That was wrong: its asserts name
+> `Engine\Model\ModelAnimSubControlData.cpp:1052-1115`, not `ModelGrannyUtil.cpp`, and
+> the body binds UV-transform sub-control entries to granny vector tracks rather than
+> sampling a track group. Renamed. It is still worth reading — it is the cleanest place
+> in the binary to see granny struct packing, because it reads
+> `group->VectorTrackCount` at `+0x08` and `group->VectorTracks` at `+0x0C`, a QWORD
+> on a 4-aligned offset. That corroborates [[gw2-granny-64bit]] for the *runtime*
+> structs, not just the file blob: declare granny types without `#pragma pack(1)` and
+> every field after the first int/pointer pair shifts.
+
+### Granny vertex attribute → GrFvf
+
+`ModelFileFormatGranny_VertexTypeToFvf` (`0x140D556B0`,
+`ModelFileFormatGrannyUtils.cpp:108`) is where a granny vertex type becomes an fvf
+mask. It walks the `granny_data_type_definition` member list and `strcmp`s each member
+`Name` against `s_grannyAttribToFvf` (`0x141EE7CC0`, 28 entries × 24 bytes), OR-ing the
+bits together. Unknown name is **fatal**, not skipped: *"Unknown granny vertex
+attribute - %s"*. At most 16 elements (`MAX_GRANNY_VERTEX_ELEMENTS`).
+
+| granny name | fvf bit | granny member type | comps |
+| --- | --- | --- | --- |
+| `Position` | `0x00000001` | 10 `Real32` | 3 |
+| `Position` | `0x10000000` | 21 `Real16` | 3 |
+| `BoneWeights` | `0x00000002` | 14 `NormalUInt8` | 4 |
+| `BoneIndices` | `0x00000004` | 12 `UInt8` | 4 |
+| `Normal` | `0x00000008` | 10 `Real32` | 3 |
+| `Normal` | `0x04000000` | 19 `Int32` | 1 |
+| `DiffuseColor` / `DiffuseColor0` | `0x00000010` | 11 `Int8` | 4 |
+| `Tangent` | `0x00000020` | 10 `Real32` | 3 |
+| `Binormal` | `0x00000040` | 10 `Real32` | 3 |
+| `TangentFrame` | `0x00000080` | 19 `Int32` | 3 |
+| `TangentFrame` | `0x20000000` | 19 `Int32` | 3 |
+| `TextureCoordinates0..7` | `0x100 << n` | 10 `Real32` | 2 |
+| `TextureCoordinatesF16_0..7` | `0x10000 << n` | 21 `Real16` | 2 |
+
+Two rows settle things the fvf bits alone left ambiguous: the packed `Normal` and both
+`TangentFrame` variants are `Int32` — a normal packed into a single uint32, and a
+tangent frame as three of them. And `0x20000000`, which `GrFvf_ToString` only ever
+prints as the letter `F`, is a second `TangentFrame` encoding.
 
 ## Module map for further work
 
@@ -171,9 +212,9 @@ Source-path anchors, for picking up where this stopped:
 
 ## Not done
 
-- **Texture upload was not traced.** `BgfxTexture.cpp` was enumerated (18 functions) but no
-  entry point was named. The ATEX *decode* side is already covered by
-  [[gw2-cmp-img-symbol-map]]; what is missing is decoded-pixels → GPU texture.
+- ~~**Texture upload was not traced.**~~ **Done 2026-08-16** — all 18 `BgfxTexture.cpp`
+  functions are named and the decoded-pixels → GPU path is written up in
+  [[gw2-texture-upload]]. Entry point is `BgfxTexture_UploadLevels` (`0x140B15850`).
 - The ~1094 standalone engine shader blobs and the 11 compute shaders were not re-anchored;
   [[gw2-exe-shaders]] still has the extraction recipe but its addresses are stale.
 - `Model.cpp` (51 funcs) and `GrModel.cpp` (67 funcs) were enumerated only. The MODL chunk

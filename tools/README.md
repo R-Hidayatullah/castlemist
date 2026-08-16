@@ -80,6 +80,45 @@ regenerating after a game patch.
 See [`shaders/SHADER_PIPELINE.md`](shaders/SHADER_PIPELINE.md) for how the
 shader dump fits together.
 
+## The IDA symbol backup
+
+| script | what it does |
+| ------ | ------------ |
+| `ida_restore_symbols.py` | replays the whole symbol set into an IDB: enums, struct headers, function names and comments, data symbols, inline comments, **local variable names, pseudocode labels, and both folder trees** |
+| `ida_apply_cmp_img_names.py` | the address-free path — re-derives the Compress/image function map from the binary's embedded Perforce source paths after a patch |
+| `gw2_ida_symbols.json` | the data: 324 functions, 219 comments, 863 locals, 85 labels, 29 data symbols |
+| `structs/gw2_ida_types.h` | bgfx, GrFvf, DDI texture, ATEX and AMAT-shader-chunk types |
+| `structs/gw2_ida_types_granny.h` | the granny 2.9.12 structs, all `#pragma pack(1)` |
+| `structs/gw2_ida_types_subsystems.h` | Archive3 MFT rows, PF packfile headers, model load stages, scene chatter lines |
+
+`restore_folders()` rebuilds the Functions-window and Local-Types folder trees
+from prefix rules in the script. Those rules key off **names**, not addresses, so
+that one piece survives a client patch — run it on its own after re-anchoring.
+
+Local variable names and label names live **only** inside the `.i64` — nothing else
+in the repo can regenerate them, which is the whole reason the JSON exists.
+
+```
+File > Script file... > ida_restore_symbols.py
+idat -A -S"ida_restore_symbols.py" Gw2-64.exe.i64      # headless
+```
+
+After doing more RE, dump it back out from the IDA console:
+
+```python
+import ida_restore_symbols as s; s.export_symbols()
+```
+
+`export_symbols()` finds functions by name prefix rather than from a hand-kept
+address list, so newly named ones are picked up automatically — but a name outside
+`NAME_PREFIXES` is invisible to it and will be lost on the next restore. Add the
+prefix when you add the name.
+
+The JSON is keyed by absolute address and therefore belongs to **one build**. After a
+client patch use `ida_apply_cmp_img_names.py`'s `rebuild_from_source_paths()` to
+re-anchor, then re-export. The two `.h` files are the exception: they are keyed by
+field offset, not address, so they survive a patch as long as the structs do.
+
 ## Probes: code that runs inside the game
 
 These attach to a live client, so read what they do before running them.

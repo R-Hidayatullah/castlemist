@@ -19,6 +19,7 @@ names an address, that is `Gw2-64.exe` with ASLR disabled, imagebase
 | note | what it settles |
 | ---- | --------------- |
 | [filetypes.md](filetypes.md) | the file types in the dat and which ones castlemist handles |
+| [gw2-archive-packfile-runtime.md](gw2-archive-packfile-runtime.md) | the client's own view of the dat. **Three of our `MftData` field names describe the wrong thing** — `compression_flag` is really `extraBytes`, `entry_flag` is two fields, `counter` is a stream-chain link. Also: the packfile signature is the uint16 `"PF"`, and the MFT CRC deliberately skips its own slot |
 | [gw2-method0-degenerate-huff.md](gw2-method0-degenerate-huff.md) | an all-zero code-length table decodes to one symbol in **zero bits** -- this fixed 462 entries that had failed to decompress |
 | [gw2index-tool.md](gw2index-tool.md) | what the index records and why compression truth has to be verified rather than read off the flag |
 | [gw2mcp-server.md](gw2mcp-server.md) | the CLI/MCP split over the dat tooling |
@@ -40,7 +41,8 @@ names an address, that is `Gw2-64.exe` with ASLR disabled, imagebase
 
 | note | what it settles |
 | ---- | --------------- |
-| [gw2-render-asset-pipeline.md](gw2-render-asset-pipeline.md) | how shaders, models and animation load. **58 shader packages are baked into the exe; shaderId 58 loads an AMAT from the dat** — both paths traced to the branch. Also the definitive GrFvf → bgfx::VertexLayout builder |
+| [gw2-render-asset-pipeline.md](gw2-render-asset-pipeline.md) | how shaders, models and animation load. **58 shader packages are baked into the exe; shaderId 58 loads an AMAT from the dat** — both paths traced to the branch. Also the definitive GrFvf → bgfx::VertexLayout builder, and the 28-entry granny-attribute → fvf table |
+| [gw2-texture-upload.md](gw2-texture-upload.md) | decoded pixels → GPU texture, the half [gw2-cmp-img-symbol-map](gw2-cmp-img-symbol-map.md) stops short of. **DdiTexture carries two format fields four bytes apart** — GR_FORMAT at +0x0C, bgfx::TextureFormat at +0x10 — and confusing them breaks every pitch calculation |
 | [vertex-fvf.md](vertex-fvf.md) | GrFvf, the flexible vertex format, and how a vertex declaration is read |
 | [gw2-skeleton.md](gw2-skeleton.md) | bind pose from SKEL (inverse of the inverse-world), embedded animation, GPU skinning |
 | [gw2-granny-64bit.md](gw2-granny-64bit.md) | granny blobs are 32- **or** 64-bit. Read a 64-bit one as 32-bit and you get zero-length arrays, not an error -- animations silently came out 0.0 s long |
@@ -59,6 +61,7 @@ names an address, that is `Gw2-64.exe` with ASLR disabled, imagebase
 
 | note | what it settles |
 | ---- | --------------- |
+| [gw2-bgfx-vendored-version.md](gw2-bgfx-vendored-version.md) | GW2 vendors **upstream bgfx verbatim** at commit `a476c5b9`, rev 8775, API 128. A `bgfx-master` checkout is not a drop-in reference: `Attrib::Count` is 18 there and 26 on master, so `VertexLayout` copied from master is silently wrong. Three offsets in the binary pin the version without trusting the SHA |
 | [gw2-shaders-dxbc.md](gw2-shaders-dxbc.md) | the game's DXBC shaders live in AMAT entries and load in D3D11 |
 | [gw2-exe-shaders.md](gw2-exe-shaders.md) | ~2275 more bgfx blobs are embedded in the exe; how they are ordered |
 | [gw2-amat-shader-roles.md](gw2-amat-shader-roles.md) | an AMAT holds *every* frame-pass shader. Picking the normal pre-pass is what renders models flat green, and `shaderPassFlags` cannot tell you which is which |
@@ -77,6 +80,7 @@ names an address, that is `Gw2-64.exe` with ASLR disabled, imagebase
 | [gw2-text-pack.md](gw2-text-pack.md) | how cntc content names and voice lines resolve through txtm/txtv/txtV |
 | [gw2-chat-links.md](gw2-chat-links.md) | `&[base64]` links: two systems, classic header-dispatch and message-pack templates |
 | [gw2-bink-video.md](gw2-bink-video.md) | KB2i/KB2j playback through the game's own DLL, and why seeks are expensive |
+| [gw2-scene-video-subtitles.md](gw2-scene-video-subtitles.md) | **subtitles are called "chatter lines"** — searching for `subtitle` or `caption` finds nothing. 201 line types, each with a near/far duration picked by whether you are targeting the speaker. Also: Bink movies stream through the asset system, not off disk |
 
 ## The client itself
 

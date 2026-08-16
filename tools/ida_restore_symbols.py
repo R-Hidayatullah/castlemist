@@ -8,12 +8,12 @@ Run inside IDA:  File > Script file... > ida_restore_symbols.py
 or headless:     idat -A -S"ida_restore_symbols.py" Gw2-64.exe.i64
 
 Restores, in order:
+  * the enums below, then the struct headers in structs/
   * function names + function comments
   * data symbol names + comments
   * inline (address) comments
   * local variable names, per function
   * pseudocode label names (the `goto` targets Hex-Rays calls LABEL_nn)
-  * the GR_FORMAT enum
 
 Local variable names AND label names exist only inside the .i64 -- neither is
 recoverable from anywhere else, which is the whole reason this sidecar exists.
@@ -33,6 +33,7 @@ import json
 import os
 import re
 
+import ida_dirtree
 import ida_funcs
 import ida_hexrays
 import ida_ida
@@ -56,6 +57,16 @@ def _imagebase():
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JSON_PATH = os.path.join(HERE, "gw2_ida_symbols.json")
+
+# Struct/typedef headers, parsed in this order after the enum blob below.
+# Unlike the enums these are large enough to be worth keeping as real C files:
+# they double as the reference anyone reading the notes actually wants, and they
+# carry the evidence for every offset in their comments.
+TYPE_HEADERS = (
+    os.path.join(HERE, "structs", "gw2_ida_types.h"),
+    os.path.join(HERE, "structs", "gw2_ida_types_granny.h"),
+    os.path.join(HERE, "structs", "gw2_ida_types_subsystems.h"),
+)
 
 
 # All enums the IDB relies on. Declared as one blob so restore() can re-parse them
@@ -128,6 +139,32 @@ enum BGFX_ATTRIB_TYPE : unsigned int
 GENERIC = re.compile(r"(v|a)\d+|i\d*|j|k|result")
 
 
+def restore_types():
+    """Declare the enums, then the struct headers.
+
+    Order matters: the headers may name an enum, never the other way round.
+    parse_decls returns the number of declarations it could NOT parse, so a
+    non-zero result is a real failure and is reported rather than swallowed.
+    """
+    til = ida_typeinf.get_idati()
+    errs = ida_typeinf.parse_decls(til, GR_FORMAT_ENUM, None, ida_typeinf.HTI_DCL)
+    if errs:
+        print(f"!! {errs} enum declaration(s) failed to parse")
+    n_hdr = 0
+    for path in TYPE_HEADERS:
+        if not os.path.exists(path):
+            print(f"   missing type header, skipped: {path}")
+            continue
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        errs = ida_typeinf.parse_decls(til, src, None, ida_typeinf.HTI_DCL)
+        if errs:
+            print(f"!! {errs} declaration(s) failed in {os.path.basename(path)}")
+        else:
+            n_hdr += 1
+    print(f"types: enums + {n_hdr}/{len(TYPE_HEADERS)} struct headers declared")
+
+
 def _sanity_check(doc):
     """Refuse to run against a binary the JSON was not taken from."""
     base = doc.get("imagebase")
@@ -155,7 +192,7 @@ def restore(path=JSON_PATH, do_lvars=True):
     if not _sanity_check(doc):
         return False
 
-    ida_typeinf.parse_decls(None, GR_FORMAT_ENUM, None, ida_typeinf.HTI_DCL)
+    restore_types()
 
     n_fn = n_cmt = n_lv = n_data = n_inl = n_lab = 0
     for ea_s, rec in doc["functions"].items():
@@ -221,6 +258,8 @@ def restore(path=JSON_PATH, do_lvars=True):
 
     print(f"restored: {n_fn} functions, {n_cmt} function comments, {n_lv} local variables, "
           f"{n_lab} labels, {n_data} data symbols, {n_inl} inline comments")
+    # folders last: they are keyed by name, so every rename above must land first
+    restore_folders()
     print("Remember to save the database (Ctrl+W).")
     return True
 
@@ -239,7 +278,161 @@ NAME_PREFIXES = (
     "GrFvf_", "Bgfx", "GrGeoset_", "GrMat_", "GrResource_",
     "McMaterial_", "ModelFile_", "ModelGranny_", "Model_", "GrannyFvf_",
     "Math_",
+    # lowercase bgfx_ is the vendored upstream API (bgfx::createVertexBuffer and
+    # friends); "Bgfx" above is case-sensitive and does NOT cover it
+    "bgfx_",
+    "Bink_",
+    "ModelAnim", "ModelFileFormat", "ModelUtil",
+    # dat container + asset containers
+    "Archive_", "Packfile_",
+    # map, video, cinematics, scene subtitles
+    "Map_", "MapData_", "Video_", "BinkAssetIo_", "CinVideo_", "ScnCli_",
 )
+
+
+# ---------------------------------------------------------------- folders --
+# The Functions-window and Local-Types folder trees live only inside the .i64,
+# exactly like local variable names. Both are keyed by NAME (function name /
+# type name) rather than by address, so unlike the rest of this file they
+# survive a client patch.
+#
+# Layout mirrors the engine's own source tree, the one baked into the binary as
+# D:\Perforce\Live\NAEU\v2\Code\Arena\... -- that is the same anchor the naming
+# pass navigates by, so the two agree by construction.
+#
+# Rules are matched MOST SPECIFIC FIRST: "ModelFileFormat" must be tested
+# before "ModelFile", which must be tested before "Model_".
+FUNC_FOLDERS = [
+    ("Archive_",               "/Arena/Services/Archive3"),
+    ("Packfile_",              "/Arena/Services/Packfile"),
+    ("CmpHuff_",               "/Arena/Services/Compress"),
+    ("Cmp_",                   "/Arena/Services/Compress"),
+    ("CptRc4_",                "/Arena/Services/Crypt"),
+    ("Cpt_",                   "/Arena/Services/Crypt"),
+    ("Base64_",                "/Arena/Services/Encoding"),
+    ("Token_",                 "/Arena/Services/Encoding"),
+    ("Crc32",                  "/Arena/Services/Encoding"),
+    ("HashMurmur2A_",          "/Arena/Services/Encoding"),
+    ("j_Arena_",               "/Arena/Core"),
+    ("Arena_",                 "/Arena/Core"),
+    ("Math_",                  "/Arena/Core"),
+    ("TextDecode_",            "/Arena/Engine/Text"),
+    ("TextKey_",               "/Arena/Engine/Text"),
+    ("TextParser_",            "/Arena/Engine/Text"),
+    ("bgfx_",                  "/External/bgfx"),
+    ("BgfxVertexLayout_",      "/Arena/Engine/Gr/Bgfx"),
+    ("BgfxTexture_",           "/Arena/Engine/Gr/Bgfx"),
+    ("BgfxBuffer_",            "/Arena/Engine/Gr/Bgfx"),
+    ("BgfxShader",             "/Arena/Engine/Gr/Bgfx"),
+    ("Bgfx",                   "/Arena/Engine/Gr/Bgfx"),
+    ("GrannyFvf_",             "/Arena/Engine/Gr/Fvf"),
+    ("GrFvf_",                 "/Arena/Engine/Gr/Fvf"),
+    ("ImgAtexCommon_",         "/Arena/Engine/Gr/Img"),
+    ("ImgAtex_",               "/Arena/Engine/Gr/Img"),
+    ("Img",                    "/Arena/Engine/Gr/Img"),
+    ("GrImg",                  "/Arena/Engine/Gr/Img"),
+    ("McMaterial_",            "/Arena/Engine/Gr/Material"),
+    ("GrMat_",                 "/Arena/Engine/Gr/Material"),
+    ("GrGeoset_",              "/Arena/Engine/Gr"),
+    ("GrResource_",            "/Arena/Engine/Gr"),
+    ("ModelFileFormatGranny_", "/Arena/Engine/ModelFileFormat"),
+    ("ModelFileFormat_",       "/Arena/Engine/ModelFileFormat"),
+    ("ModelFile_",             "/Arena/Engine/Model"),
+    ("ModelGranny_",           "/Arena/Engine/Model"),
+    ("ModelAnim",              "/Arena/Engine/Model"),
+    ("ModelUtil",              "/Arena/Engine/Model"),
+    ("Model_",                 "/Arena/Engine/Model"),
+    ("MapData_",               "/Arena/Engine/Map"),
+    ("Map_",                   "/Arena/Engine/Map"),
+    ("BinkAssetIo_",           "/Arena/Engine/Video"),
+    ("Video_",                 "/Arena/Engine/Video"),
+    ("CinVideo_",              "/Arena/Engine/Cinema"),
+    ("ScnCli_",                "/Gw2/Game/Scene"),
+    ("ChatLink_",              "/Gw2/Game/ChatLink"),
+]
+
+TYPE_FOLDERS = [
+    ("bgfx_",              "/External/bgfx"),
+    ("BGFX_ATTRIB",        "/External/bgfx"),
+    ("GrFvfVertexLayout",  "/Gr/Fvf"),
+    ("GR_FVF",             "/Gr/Fvf"),
+    ("GrannyAttribToFvf",  "/Granny"),
+    ("granny_",            "/Granny"),
+    ("GR_FORMAT",          "/Gr/Texture"),
+    ("DDI_TEXTURE",        "/Gr/Texture"),
+    ("DdiTexture",         "/Gr/Texture"),
+    ("ATEX_MAGIC",         "/Gr/Img"),
+    ("AtexHeader",         "/Gr/Img"),
+    ("IMG_FILE_TYPE",      "/Gr/Img"),
+    ("Amat",               "/Gr/Shader"),
+    ("BgfxShader",         "/Gr/Shader"),
+    ("GR_SHADER",          "/Gr/Shader"),
+    ("ArchiveAllocEntry",  "/Services/Archive3"),
+    ("ArchiveDescriptor",  "/Services/Archive3"),
+    ("ARCHIVE_",           "/Services/Archive3"),
+    ("Packfile",           "/Services/Packfile"),
+    ("PACKFILE_",          "/Services/Packfile"),
+    ("CMP_METHOD",         "/Services/Compress"),
+    ("CHAT_LINK",          "/Gw2/ChatLink"),
+    ("MODEL_LOAD",         "/Model"),
+    ("SCN_CHATTER",        "/Gw2/Scene"),
+]
+
+
+def _folder_for(name, rules):
+    for prefix, folder in rules:
+        if name.startswith(prefix):
+            return folder
+    return None
+
+
+def _move_into_folder(dt, inode, name, folder):
+    """Move one dirtree entry, tolerating an entry that is already in place."""
+    cursor = dt.find_entry(ida_dirtree.direntry_t(inode, False))
+    if cursor is None or not cursor.valid():
+        return False
+    src = dt.get_abspath(cursor)
+    dst = folder + "/" + name
+    if src == dst:
+        return True
+    return dt.rename(src, dst) == 0
+
+
+def restore_folders():
+    """Rebuild both folder trees from the prefix rules above.
+
+    Only entries whose name matches a rule are touched; everything else --
+    Windows/CRT types, the 87k unnamed subs -- is left at the root where it
+    belongs. Safe to re-run.
+    """
+    fdt = ida_dirtree.get_std_dirtree(ida_dirtree.DIRTREE_FUNCS)
+    for _, folder in FUNC_FOLDERS:
+        fdt.mkdir(folder)
+    n_fn = 0
+    for ea in idautils.Functions():
+        name = idc.get_func_name(ea)
+        if not name:
+            continue
+        folder = _folder_for(name, FUNC_FOLDERS)
+        if folder and _move_into_folder(fdt, ea, name, folder):
+            n_fn += 1
+
+    til = ida_typeinf.get_idati()
+    tdt = ida_dirtree.get_std_dirtree(ida_dirtree.DIRTREE_LOCAL_TYPES)
+    for _, folder in TYPE_FOLDERS:
+        tdt.mkdir(folder)
+    n_ty = 0
+    for ordinal in range(1, ida_typeinf.get_ordinal_count(til) + 1):
+        tif = ida_typeinf.tinfo_t()
+        if not tif.get_numbered_type(til, ordinal):
+            continue
+        name = tif.get_type_name()
+        if not name:
+            continue
+        folder = _folder_for(name, TYPE_FOLDERS)
+        if folder and _move_into_folder(tdt, ordinal, name, folder):
+            n_ty += 1
+    print(f"folders: {n_fn} functions, {n_ty} local types filed")
 
 
 def _discover():
