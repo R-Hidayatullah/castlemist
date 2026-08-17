@@ -1712,7 +1712,58 @@ private:
             return ft[container_][fourcc][vs].get<std::string>();
         const json& ch = tpl_.contains("chunks") ? tpl_["chunks"] : json::object();
         if (ch.contains(fourcc) && ch[fourcc].contains(vs)) return ch[fourcc][vs].get<std::string>();
+
+        // `strucTabs` is the template's OTHER chunk registry -- one entry per
+        // engine struct table, each carrying its own version map. Some chunks
+        // appear only there: `fileTypes["MODL"]` lists MODL/ANIM/COLL/GR2S and
+        // nothing else, so a model's SKEL chunk resolved to no type at all and
+        // parseSkeleton bailed at its `root.empty()` guard before reading a
+        // single bone -- every model came back with an empty skeleton even
+        // though the chunk was right there (Deimos: SKEL v1, 56788 bytes).
+        // That left the whole rig-dependent stack dead: no joints, no resolved
+        // bone bindings, no skinning, no animation.
+        //
+        // A fourcc can be shared by several tabs (SKEL has a ModelFileSkeleton*
+        // tab used by ROOT and a SceneFileSkeleton* tab used by PHYS).
+        // Disambiguate on the chunks THIS file actually carries rather than on
+        // tab order, which is arbitrary: a MODL model carries a ROOT chunk, a
+        // PHYS scene carries a PHYS chunk. Tab order is only the last resort.
+        const json& stabs = tpl_.contains("strucTabs") ? tpl_["strucTabs"] : json::object();
+        if (stabs.contains(fourcc) && stabs[fourcc].is_array()) {
+            const std::vector<std::string> present = chunkFourccs();
+            const json* fallback = nullptr;
+            for (const json& tab : stabs[fourcc]) {
+                if (!tab.contains("versions") || !tab["versions"].contains(vs)) continue;
+                if (!fallback) fallback = &tab;
+                if (!tab.contains("usedBy") || !tab["usedBy"].is_array()) continue;
+                for (const json& u : tab["usedBy"]) {
+                    if (!u.is_string()) continue;
+                    const std::string un = u.get<std::string>();
+                    bool hit = (un == container_);
+                    for (size_t i = 0; !hit && i < present.size(); ++i) hit = (present[i] == un);
+                    if (hit) return tab["versions"][vs].get<std::string>();
+                }
+            }
+            if (fallback) return (*fallback)["versions"][vs].get<std::string>();
+        }
         return "";
+    }
+
+    // The fourcc of every chunk in this file, in file order. Used only to
+    // disambiguate a strucTabs entry shared by several containers (chunkType).
+    std::vector<std::string> chunkFourccs() const {
+        std::vector<std::string> out;
+        size_t pos = rd16(6); // headerSize
+        while (pos + 16 <= n_) {
+            char fourcc[5] = {0};
+            std::memcpy(fourcc, d_ + pos, 4);
+            const uint32_t chunkSize = rd32(pos + 4);
+            out.emplace_back(fourcc);
+            const size_t next = pos + 8 + chunkSize;
+            if (next <= pos) break;
+            pos = next;
+        }
+        return out;
     }
 
     // walk chunks; return the data-start offset of the first matching fourcc (0 if none)

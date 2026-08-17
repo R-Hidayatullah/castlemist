@@ -208,6 +208,67 @@ CM_TEST(dat, recognises_models_and_builds_them_when_a_template_is_loaded) {
     }
 }
 
+// A rigged model must arrive at the renderer WITH its rig.
+//
+// This is the regression nothing was catching. `Extractor::chunkType` resolved a
+// chunk's struct only through the template's `fileTypes`/`chunks` maps, but SKEL
+// appears in neither -- only in `strucTabs`. So parseSkeleton bailed at its
+// `root.empty()` guard and every model in the archive came back with an empty
+// skeleton, even with a 56 KB SKEL chunk sitting right there in the file.
+//
+// Nothing failed loudly. The rig was simply absent: no joints, no resolved bone
+// bindings, no skinning, and -- because the UI gates the clip selector on
+// `render::has_skeleton()` -- no animation controls at all, on any model.
+//
+// baseId 146007 is MFT index 146006, the 302-bone boss (fileId 1634661) whose
+// bone count is recorded in docs/research/gw2-skeleton.md.
+CM_TEST(dat, a_rigged_model_arrives_with_its_skeleton_and_clips) {
+    if (!ensure_template()) SKIP("no gw2_packfile.json struct template");
+
+    ExtractedEntry e = extract_base(146007);
+    CHECK(e.kind == PreviewKind::Model);
+    if (e.model == nullptr) SKIP("model did not build");
+
+    // The rig itself. An empty joints list is the exact failure described above.
+    CHECK_FALSE(e.model->joints.empty());
+    CHECK_EQ(e.model->joints.size(), size_t(302));
+
+    // Parents must precede children, which is what lets a single forward pass
+    // compose the pose (see native/granny_pose.hpp).
+    for (size_t i = 0; i < e.model->joints.size(); ++i)
+        CHECK(e.model->joints[i].parent < static_cast<int>(i));
+
+    // Decoded Granny clips, so there is something to select and play.
+    CHECK_FALSE(e.model->animClips.empty());
+
+    // The bone bindings are resolved INTO the vertices (build_model_preview maps
+    // each mesh's binding-slot table through the rig, then writes joint indices
+    // into GVertex). So a rig that resolved shows up as skinned meshes whose
+    // vertex indices actually address the joint list -- with no rig they would
+    // all have collapsed to slot 0 with no weight.
+    size_t skinnedMeshes = 0, weighted = 0, inRange = 0, sampled = 0;
+    for (const auto& m : e.model->meshes) {
+        if (!m.hasSkin) continue;
+        ++skinnedMeshes;
+        for (const GVertex& v : m.vertices) {
+            ++sampled;
+            float wsum = 0.0f;
+            bool ok = true;
+            for (int c = 0; c < 4; ++c) {
+                wsum += v.bwt[c];
+                if (v.bwt[c] > 0.0f &&
+                    static_cast<size_t>(v.bidx[c]) >= e.model->joints.size()) ok = false;
+            }
+            if (wsum > 0.5f) ++weighted;
+            if (ok) ++inRange;
+        }
+    }
+    CHECK(skinnedMeshes > 0);
+    CHECK(sampled > 0);
+    CHECK_EQ(inRange, sampled);          // every index addresses a real joint
+    CHECK(weighted * 100 >= sampled * 95); // and carries real blend weights
+}
+
 // Both extract_entry overloads must agree: the background-thread one opens its
 // own handle, and a divergence there would mean the preview differs from what
 // the UI thread would have produced.
