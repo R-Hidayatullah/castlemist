@@ -49,6 +49,12 @@ void render_game(ID3D11Buffer* vbUse) {
         g_game_vals[n] = std::vector<float>(t.m, t.m + 16);
     };
     pM("World", model); pM("ViewProjection", vp); pM("WorldViewProjection", mvp); pM("WorldView", wv);
+    // GW2's SKINNED vertex shaders declare `View` where the plain ones declare
+    // `World` (same cbuffer offset). This path prefers a variant that does not
+    // read `grbones`, so it normally binds the plain one -- but a material whose
+    // every variant is skinned falls back to one that does, and then `View` was
+    // simply never supplied. Feeding it costs nothing and removes the hole.
+    pM("View", view);
     g_game_vals["CameraPosition"] = std::vector<float>{eye.x, eye.y, eye.z, 1};
     // ScreenDims = (1/w, 1/h, w, h) -- RECIPROCALS FIRST. Measured directly in the
     // capture: a 1344x756 frame binds (0.000744, 0.001323, 1344, 756) (sample1 eid

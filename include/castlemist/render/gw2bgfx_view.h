@@ -127,6 +127,14 @@ float anim_time();
 void set_playing(bool playing);
 bool is_playing();
 
+/// @brief Whether playback would actually change the picture.
+///
+/// True only when playing AND a clip is selected AND a rig resolved. Callers
+/// driving a repaint timer should gate on this rather than ::is_playing: this
+/// surface paints on the UI thread, so a repaint that cannot change anything
+/// still costs a frame and makes the whole window feel unresponsive.
+bool is_animating();
+
 /// @brief How many of this model's draws the game would skin, i.e. carry both
 ///        blend weights and blend indices and resolved against the rig.
 ///        Zero on an unrigged model even when clips exist.

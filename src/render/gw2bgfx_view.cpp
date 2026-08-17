@@ -35,6 +35,7 @@ void rotation_trim(float out[3]) { out[0] = out[1] = out[2] = 0.0f; }
 void set_force_two_sided(bool) {}
 bool force_two_sided() { return false; }
 bool has_skeleton() { return false; }
+bool is_animating() { return false; }
 int skeleton_bone_count() { return 0; }
 int animation_count() { return 0; }
 const char* animation_name(int) { return ""; }
@@ -84,6 +85,25 @@ namespace {
 struct Vec4 {
     float v[4];
 };
+
+/// Reset flags for the surface. Deliberately NOT `BGFX_RESET_VSYNC`.
+///
+/// This view lives in a child window and is painted from `WM_PAINT` on the UI
+/// thread, so `bgfx::frame()` runs there too. With vsync on, every frame blocks
+/// that thread until the next vblank -- about 16 ms.
+///
+/// That was survivable while the surface only painted on demand: one blocked
+/// frame per mouse-drag step is invisible. It stopped being survivable once
+/// animation playback started driving a repaint every 16 ms from TIMER_ANIM,
+/// because then the UI thread is inside `frame()` essentially all the time. The
+/// whole window goes treacly: dragging to rotate stutters or appears to stop
+/// outright, and clicking a different entry in the list feels dead.
+///
+/// The animation timer already paces playback at ~60 fps, so vsync was only
+/// adding a blocking wait on top of a cadence that existed anyway. Dropping it
+/// gives the message loop its thread back. Tearing is not a concern for a
+/// composited child window presenting at the timer's rate.
+constexpr uint32_t kResetFlags = BGFX_RESET_NONE;
 
 /// The paper-doll studio rig, evaluated -- the values the engine supplies that
 /// do not come out of the archive. Measured from the client; see
@@ -387,7 +407,7 @@ bool initialize(HWND target_window) {
     init.type = bgfx::RendererType::Direct3D11;
     init.resolution.width = (uint32_t)g.width;
     init.resolution.height = (uint32_t)g.height;
-    init.resolution.reset = BGFX_RESET_VSYNC;
+    init.resolution.reset = kResetFlags;
     init.platformData.nwh = target_window;
     init.callback = &g_callback;
     if (!bgfx::init(init)) {
@@ -527,6 +547,11 @@ void set_playing(bool playing) {
 }
 bool is_playing() { return g.playing; }
 
+bool is_animating() {
+    return g.playing && g.clipIndex >= 0 && g.clipIndex < (int)g.clips.size() &&
+           !g.poseBones.empty();
+}
+
 const std::string& last_status() { return g.status; }
 
 bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
@@ -589,11 +614,20 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
     // pointer's high dword otherwise (see granny_anim.hpp). Keeping only the
     // valid ones matches ModelPreview's filter, which is what keeps clip
     // indices identical between this view and castlemist::render.
-    for (const mdl::AnimClip& c : model.anim.clips) {
-        if (c.rawGranny.empty()) continue;
-        castlemist::granny::Anim a =
-            castlemist::granny::parse(c.rawGranny.data(), c.rawGranny.size(), c.ptrSize);
-        if (a.valid) g.clips.push_back(std::move(a));
+    //
+    // Skipped entirely without a rig. Decoding is not cheap -- a boss's ANIM
+    // chunk is 1.78 MB over 10 clips, and set_model runs on the UI thread inside
+    // WM_PAINT -- and with no bones there is nothing any of it could pose.
+    // Plenty of rigged-looking assets land here: an armour piece keeps its bone
+    // bindings but references no skeleton, because the character assembly
+    // supplies one at runtime.
+    if (!g.skel.bones.empty()) {
+        for (const mdl::AnimClip& c : model.anim.clips) {
+            if (c.rawGranny.empty()) continue;
+            castlemist::granny::Anim a =
+                castlemist::granny::parse(c.rawGranny.data(), c.rawGranny.size(), c.ptrSize);
+            if (a.valid) g.clips.push_back(std::move(a));
+        }
     }
 
     // boneBindings token64 -> skeleton index, via the engine's own bone-name
@@ -818,7 +852,7 @@ void render() {
     if (!g.inited) return;
 
     if (g.sizeDirty) {
-        bgfx::reset((uint32_t)g.width, (uint32_t)g.height, BGFX_RESET_VSYNC);
+        bgfx::reset((uint32_t)g.width, (uint32_t)g.height, kResetFlags);
         g.sizeDirty = false;
     }
     bgfx::setViewRect(0, 0, 0, uint16_t(g.width), uint16_t(g.height));
@@ -852,19 +886,30 @@ void render() {
     // GW2's shaders want the transpose of what bx builds: bx is row-vector
     // (`v * M`), GW2's HLSL multiplies `mul(M, v)`. Uploaded as bx builds them,
     // every vertex lands off screen.
-    float viewProjT[16], worldT[16], worldViewT[16];
+    float viewProjT[16], worldT[16], worldViewT[16], viewT[16];
     bx::mtxTranspose(viewProjT, viewProj);
     bx::mtxTranspose(worldT, g.world);
     bx::mtxTranspose(worldViewT, worldView);
+    // The SKINNED vertex shader asks for `View`, where the plain one asks for
+    // `World` -- both at cbuffer offset 160. It was not in the fed set at all, so
+    // a skinned draw got whatever was left in that register.
+    bx::mtxTranspose(viewT, view);
 
     // ------------------------------------------------------------------
     // Pose the rig once for the whole frame. Every skinned draw reads the same
     // per-bone result and only differs in which slots it picks out of it.
     //
-    // The palette is MODEL-space: a skin matrix takes a bind-space vertex to
-    // animated model space, and `World` then does model -> render exactly as it
-    // does for static geometry. So nothing about the camera or the axis fix has
-    // to change to support skinning.
+    // The palette is WORLD-space, not model-space. GW2's skinned vertex shader
+    // declares no `World` and no `WorldView` -- only `View` and `ViewProjection`
+    // (verified on the real shaders with `gw2bgfx_probe --skinned`). The object
+    // transform is therefore baked into the bone matrices by the engine, and
+    // there is no later stage that could apply it.
+    //
+    // That is why a model-space palette made the view unrotatable: the trackball
+    // lives in `g.world`, the skinned shader never reads it, so skinned geometry
+    // ignored the mouse entirely -- animating or not. Note the consequence for
+    // the bind pose too: `InverseBind * BindWorld` is identity, so a bind-pose
+    // slot must upload `world`, NOT identity.
     // ------------------------------------------------------------------
     const bool posed = (g.clipIndex >= 0 && g.clipIndex < (int)g.clips.size() && !g.poseBones.empty());
     if (posed) {
@@ -897,6 +942,7 @@ void render() {
                 if (u.name == "ViewProjection") { bgfx::setUniform(h, viewProjT); continue; }
                 if (u.name == "World")          { bgfx::setUniform(h, worldT); continue; }
                 if (u.name == "WorldView")      { bgfx::setUniform(h, worldViewT); continue; }
+                if (u.name == "View")           { bgfx::setUniform(h, viewT); continue; }
                 // The engine's bone palette: `mat4 grbones[255]`, global param
                 // index 115 (GrGetGlobalParamIndex, table at 0x141BF9660). Read
                 // straight off the client's own embedded shaders, whose uniform
@@ -909,23 +955,42 @@ void render() {
                 // full 255 when the shader asked for fewer would overrun its
                 // constant buffer.
                 if (u.name == "grbones") {
+                    // Upload only the slots this geoset can actually address, not
+                    // the declared 255. A vertex's GROUP index cannot exceed the
+                    // geoset's own binding count -- verified across every mesh of
+                    // fileIds 1634661/562804/904350, and the invariant the engine
+                    // itself leans on when it drops GR_FVF_GROUP past 255.
+                    //
+                    // Real geosets use 2..55 slots, so sending 255 mat4s meant
+                    // ~16 KB per draw per frame of matrices no shader would ever
+                    // read -- around 147 KB a frame on a 9-draw model, every
+                    // frame, while the UI thread was already the bottleneck.
                     const uint16_t cap = std::max<uint8_t>(1, u.num);
                     const size_t n = std::min<size_t>(d.boneSlots.size(), cap);
-                    palette.assign((size_t)cap * 16, 0.0f);
-                    for (size_t s = 0; s < (size_t)cap; ++s) {
+                    const uint16_t num = (uint16_t)std::max<size_t>(1, n);
+                    palette.assign((size_t)num * 16, 0.0f);
+                    for (size_t s = 0; s < (size_t)num; ++s) {
                         float* m = palette.data() + s * 16;
                         const int bone = (s < n) ? d.boneSlots[s] : -1;
+                        // Row-vector chain: bindPos * InverseBind * AnimatedWorld
+                        // * world == render space. An unposed or unresolved slot
+                        // contributes identity for the first two, leaving `world`
+                        // -- which is exactly what keeps a bind-pose skinned mesh
+                        // under the trackball instead of pinned in place.
+                        float combined[16];
                         if (!posed || bone < 0 || bone >= (int)g.pose.size()) {
-                            m[0] = m[5] = m[10] = m[15] = 1.0f; // identity -> bind pose
-                            continue;
+                            std::memcpy(combined, g.world, sizeof combined);
+                        } else {
+                            float sk[16];
+                            castlemist::granny::skinMatrix(g.poseBones[bone], g.pose[bone], sk);
+                            bx::mtxMul(combined, sk, g.world);
                         }
-                        // Transposed, because GW2's HLSL multiplies mul(M, v) --
-                        // the same reason World/ViewProjection go up transposed
-                        // above. Uploading the row-vector form skins every vertex
-                        // to garbage.
-                        castlemist::granny::skinMatrixColumnMajor(g.poseBones[bone], g.pose[bone], m);
+                        // Transposed last, because GW2's HLSL multiplies
+                        // mul(M, v) -- the same reason World/ViewProjection go up
+                        // transposed above.
+                        bx::mtxTranspose(m, combined);
                     }
-                    bgfx::setUniform(h, palette.data(), cap);
+                    bgfx::setUniform(h, palette.data(), num);
                     continue;
                 }
                 if (u.name == "CameraPosition") {

@@ -1429,8 +1429,13 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
         // visible one is repainted, so the bgfx view needs its own tick: it
         // advances anim_time from the frame clock inside render(), and without a
         // repaint that clock never runs and playback silently stalls.
+        //
+        // Gated on is_animating(), not is_playing(): this surface paints on the
+        // UI thread, so a repaint that cannot change the picture -- Play left on
+        // with the bind pose selected, or a model with clips but no rig -- still
+        // burns a frame and makes dragging and list selection feel unresponsive.
         if (wparam == TIMER_ANIM && g_app->bgfx_view_active && g_app->hwnd_model_bgfx != nullptr &&
-            castlemist::gw2bgfxview::is_playing()) {
+            castlemist::gw2bgfxview::is_animating()) {
             InvalidateRect(g_app->hwnd_model_bgfx, nullptr, FALSE);
         }
         if (wparam == TIMER_AUDIO) {
