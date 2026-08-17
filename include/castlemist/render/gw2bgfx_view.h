@@ -85,6 +85,54 @@ void rotation_trim(float out_deg[3]);
 void set_force_two_sided(bool on);
 bool force_two_sided();
 
+/// @name Animation
+///
+/// The surface poses the model's rig with its own embedded Granny clips and
+/// hands the result to the game's vertex shaders as `grbones` -- the engine's
+/// own bone-palette uniform, `mat4[255]`, global param index 115 in
+/// `GrGetGlobalParamIndex`'s table. Nothing here reimplements the skinning: the
+/// game's skinned vertex shader does it, exactly as the client would.
+///
+/// The clip list mirrors castlemist::render's for the same model, index for
+/// index, so ONE clip selection in the UI can drive both views and the two stay
+/// comparable frame by frame. A model whose MODL carries no rig (armour pieces
+/// bind to a skeleton the character assembly supplies at runtime, and it is not
+/// referenced from the piece) reports zero clips and draws unskinned.
+/// @{
+
+/// @brief Whether the loaded model resolved a rig -- inline or via the SKEL
+///        chunk's external `fileReference`. False means the animation calls
+///        below are all no-ops.
+bool has_skeleton();
+
+/// @brief Bones in the resolved rig, or 0. Only meaningful for diagnostics: the
+///        palette is indexed per geoset, not by this.
+int skeleton_bone_count();
+
+int animation_count();
+const char* animation_name(int clip_index);
+float animation_duration(int clip_index);
+
+/// @brief Selects a clip. -1 = bind pose, which uploads an identity palette and
+///        so leaves every vertex where the archive put it.
+void set_animation(int clip_index);
+int current_animation();
+
+/// @brief Scrub to an absolute time in seconds. Wrapped into the clip's
+///        duration at sample time, so a value past the end is not an error.
+void set_anim_time(float seconds);
+float anim_time();
+
+/// @brief Advance `anim_time` from the frame clock inside render().
+void set_playing(bool playing);
+bool is_playing();
+
+/// @brief How many of this model's draws the game would skin, i.e. carry both
+///        blend weights and blend indices and resolved against the rig.
+///        Zero on an unrigged model even when clips exist.
+int skinned_draw_count();
+/// @}
+
 /// @brief Draws and presents one frame. Cheap no-op when no model is loaded.
 void render();
 

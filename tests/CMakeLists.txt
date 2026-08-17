@@ -41,7 +41,7 @@ function(castlemist_add_test layer)
 endfunction()
 
 castlemist_add_test(native
-    SOURCES test_native_method0.cpp test_native_amat.cpp
+    SOURCES test_native_method0.cpp test_native_amat.cpp test_native_pose.cpp
     DEPS    castlemist::native)
 
 castlemist_add_test(core

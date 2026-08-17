@@ -75,10 +75,14 @@ int main(int argc, char** argv) {
     // that token when its fade is 1.0, and 0x51C59061370654 (the 2nd link of
     // the remap chain) when it is faded. Default to opaque.
     const uint64_t effectToken = std::stoull(arg(argc, argv, "--token", "0x914C6A8A883B1EE"), nullptr, 0);
+    // Ask for the skinned vertex feed rather than the static one.
+    bool skinned = false;
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--skinned") skinned = true;
 
     if (datPath.empty()) {
         std::fprintf(stderr, "usage: gw2bgfx_probe --dat <Gw2.dat> [--template <json>] "
-                             "[--index <baseId>] [--quality 0..4]\n");
+                             "[--index <baseId>] [--quality 0..4] [--skinned]\n");
         return 2;
     }
 
@@ -156,10 +160,14 @@ int main(int argc, char** argv) {
                     pkg.techniques.size());
         if (tech < 0) { std::printf("\n"); continue; }
 
-        // The mesh flags decide the vertex feed. This model is unskinned and
-        // uninstanced, so the static variant, but derive it rather than assume.
-        const uint32_t variant = vsVariantFromMeshFlags(/*meshFlags=*/0, /*surfaceFlags=*/0,
-                                                        /*instanced=*/false);
+        // The mesh flags decide the vertex feed. Default to the plain variant;
+        // `--skinned` sets the weights+indices bits, which is what a rigged
+        // geoset carries and the only route to the vertex shader that declares
+        // `grbones` (variant 1 -- see GrVsVariant).
+        const uint32_t variant =
+            vsVariantFromMeshFlags(/*meshFlags=*/skinned ? (GR_FVF_WEIGHTS | GR_FVF_GROUP) : 0u,
+                                   /*surfaceFlags=*/0,
+                                   /*instanced=*/false);
 
         for (size_t p = 0; p < pkg.techniques[tech].passes.size(); ++p) {
             AmatSelection sel = amatSelectEffect(pkg, tech, (uint32_t)p, effectToken, variant);
@@ -198,6 +206,20 @@ int main(int argc, char** argv) {
                         (unsigned long long)sel.effect->renderState,
                         (unsigned long long)st.state,
                         st.depthBias != 0.0f ? "  [depth bias]" : "");
+
+            // Every vertex feed this effect offers, and which of them actually
+            // read the engine's bone palette. This is what says whether the
+            // variant the draw loop asks for is the GPU-skinned one -- the host
+            // has to feed `grbones` to exactly those and no others.
+            std::printf("               variants:");
+            for (const auto& vv : sel.effect->vertexShaderVariants) {
+                bool bones = false;
+                if (vv.vertexShaderIndex < pkg.shaders.size())
+                    for (const auto& u : parseBgfxBlobUniforms(pkg.shaders[vv.vertexShaderIndex].dx11Shader.data))
+                        if (u.name == "grbones") { bones = true; break; }
+                std::printf(" v%u->vs%u%s", vv.variant, vv.vertexShaderIndex, bones ? "[grbones]" : "");
+            }
+            std::printf("\n");
             std::printf("               vs blob %zu B %cSH v%u, %u uniforms, %zu constants, %zu samplers\n",
                         vsBlob.data.size(), vi.valid ? vi.kind : '?', vi.version,
                         vi.uniformCount, vsBlob.constants.size(), vsBlob.samplers.size());

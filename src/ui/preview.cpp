@@ -12,6 +12,7 @@
 
 #include "castlemist/format/strs_keys.h"
 #include "castlemist/format/strs_view.h"
+#include "castlemist/render/gw2bgfx_view.h"
 
 namespace castlemist::ui {
 
@@ -243,6 +244,10 @@ void apply_extracted_entry(uint32_t mft_index, ExtractedEntry&& entry) {
             KillTimer(g_app->hwnd_main, TIMER_ANIM);
             SendMessageW(g_app->hwnd_anim_play, BM_SETCHECK, BST_UNCHECKED, 0);
             castlemist::render::set_playing(false);
+            // Keep the "Game 1:1" surface in step: a new entry must not inherit
+            // the previous model's playback state on either view.
+            castlemist::gw2bgfxview::set_playing(false);
+            castlemist::gw2bgfxview::set_animation(-1);
             SendMessageW(g_app->hwnd_anim_combo, CB_RESETCONTENT, 0, 0);
             int nclips = castlemist::render::animation_count();
             if (castlemist::render::has_skeleton()) {

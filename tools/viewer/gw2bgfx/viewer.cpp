@@ -616,10 +616,16 @@ int main(int argc, char **argv)
         }
 
         const int tech = amatSelectTechnique(pkg, maxQuality);
-        // Vertex feed from the fvf: a geoset carrying blend weights and bone
-        // indices is skinned, and the skinned variant is a different shader.
-        const bool skinned = (g.fvf & (GR_FVF_WEIGHTS | GR_FVF_GROUP)) != 0;
-        const uint32_t variant = vsVariantFromMeshFlags(skinned ? 0x80u : 0u, 0u, false);
+        // NOT the skinned feed, deliberately. The GPU-skinned variant is 1, and
+        // its vertex shader reads the `grbones` matrix palette (see GrVsVariant);
+        // this tool has no rig and uploads no palette, so binding it would skin
+        // every vertex by whatever happened to be in the uniform.
+        //
+        // Passing 0x80 selects variant 2 instead, which is what this tool has
+        // always drawn. The app's "Game 1:1" surface (src/render/gw2bgfx_view.cpp)
+        // does pose the rig and does feed grbones, and asks for variant 1.
+        const bool hasSkinFeed = (g.fvf & GR_FVF_WEIGHTS) && (g.fvf & GR_FVF_GROUP);
+        const uint32_t variant = vsVariantFromMeshFlags(hasSkinFeed ? 0x80u : 0u, 0u, false);
 
         // Pass 0 is the one that paints; later passes need a depth prepass we
         // do not run.

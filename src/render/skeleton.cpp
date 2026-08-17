@@ -3,6 +3,8 @@
 
 #include "detail/state.h"
 
+#include "castlemist/native/granny_pose.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -11,53 +13,36 @@
 
 namespace castlemist::render {
 
-struct BoneXform {
-    float lin[9] = {1,0,0, 0,1,0, 0,0,1};
-    float pos[3] = {0, 0, 0};
-};
+// The pose composition and skin-matrix maths live in native/granny_pose.hpp so
+// this renderer and the bgfx "Game 1:1" surface share one implementation.
+using BoneXform = castlemist::granny::PoseXform;
+
+// ModelJoint -> the shared PoseBone view. Rebuilt per call rather than cached:
+// it is six pointers per bone against a full hierarchy walk, and caching it
+// would need invalidating every time g_joints changed.
+static std::vector<castlemist::granny::PoseBone> pose_bones() {
+    std::vector<castlemist::granny::PoseBone> pb(g_joints.size());
+    for (size_t i = 0; i < g_joints.size(); ++i) {
+        const ModelJoint& j = g_joints[i];
+        pb[i] = {j.name.c_str(), j.parent, j.localPos, j.localQuat, j.localScale, j.invWorld};
+    }
+    return pb;
+}
 
 // Poses the skeleton at the current clip + time into per-bone world transforms.
 // clip -1 = bind pose: reuse the InverseWorld-derived positions with identity
-// linear part (the skin palette then resolves to identity). Otherwise compose
-// each bone's local transform (Granny track by name, else bind local) down the
-// hierarchy.
+// linear part (the skin palette then resolves to identity). Otherwise the shared
+// Granny composition walks the hierarchy, sampling each bone's track by name and
+// falling back to its bind local transform when the clip does not drive it.
 void compute_world(std::vector<BoneXform>& out) {
     const auto& J = g_joints;
-    out.assign(J.size(), BoneXform{});
-    bool posed = (g_clip_index >= 0 && g_clip_index < static_cast<int>(g_clips.size()));
+    const bool posed = (g_clip_index >= 0 && g_clip_index < static_cast<int>(g_clips.size()));
     if (!posed) {
-        for (size_t i = 0; i < J.size(); ++i) {
-            out[i].pos[0] = J[i].pos[0]; out[i].pos[1] = J[i].pos[1]; out[i].pos[2] = J[i].pos[2];
-        }
+        out.assign(J.size(), BoneXform{});
+        for (size_t i = 0; i < J.size(); ++i) std::memcpy(out[i].pos, J[i].pos, sizeof out[i].pos);
         return;
     }
-    const castlemist::granny::Anim* anim = &g_clips[g_clip_index];
-    std::unordered_map<std::string, int> byName;
-    for (size_t i = 0; i < anim->tracks.size(); ++i) byName[anim->tracks[i].name] = static_cast<int>(i);
-
-    for (size_t i = 0; i < J.size(); ++i) {
-        float pos[3] = {J[i].localPos[0], J[i].localPos[1], J[i].localPos[2]};
-        float quat[4] = {J[i].localQuat[0], J[i].localQuat[1], J[i].localQuat[2], J[i].localQuat[3]};
-        float ss[9]; std::memcpy(ss, J[i].localScale, sizeof ss);
-        auto it = byName.find(J[i].name);
-        if (it != byName.end()) {
-            const castlemist::granny::Track& tr = anim->tracks[it->second];
-            castlemist::granny::sample(tr.pos, g_anim_time, pos, 3);
-            castlemist::granny::sample(tr.ori, g_anim_time, quat, 4);
-            castlemist::granny::sample(tr.sca, g_anim_time, ss, 9);
-        }
-        float R[9]; quatToM3(quat, R);
-        float L[9]; m3mul(R, ss, L);
-        int p = J[i].parent;
-        if (p >= 0 && p < static_cast<int>(i)) {
-            m3mul(out[p].lin, L, out[i].lin);
-            float rp[3]; m3vec(out[p].lin, pos, rp);
-            for (int k = 0; k < 3; ++k) out[i].pos[k] = out[p].pos[k] + rp[k];
-        } else {
-            std::memcpy(out[i].lin, L, sizeof L);
-            for (int k = 0; k < 3; ++k) out[i].pos[k] = pos[k];
-        }
-    }
+    castlemist::granny::composePose(pose_bones(), &g_clips[g_clip_index], g_anim_time, out);
 }
 
 // Uploads the bone matrix palette (register b1). Each entry = InverseWorld(bind,
@@ -67,6 +52,7 @@ void update_bone_palette() {
     if (!g_bonePalette || g_bone_cap == 0) return;
     std::vector<BoneXform> W;
     compute_world(W);
+    std::vector<castlemist::granny::PoseBone> pb = pose_bones();
     int n = std::min<int>(static_cast<int>(g_joints.size()), static_cast<int>(g_bone_cap));
     bool posed = (g_clip_index >= 0 && g_clip_index < static_cast<int>(g_clips.size()));
     std::vector<float> pal(static_cast<size_t>(g_bone_cap) * 16, 0.0f);
@@ -76,19 +62,8 @@ void update_bone_palette() {
             m[0] = m[5] = m[10] = m[15] = 1.0f;
             continue;
         }
-        // Wrow (row-vector, row-major): linear = lin^T, translation row = pos.
-        const BoneXform& w = W[b];
-        float Wr[16] = {
-            w.lin[0], w.lin[3], w.lin[6], 0,
-            w.lin[1], w.lin[4], w.lin[7], 0,
-            w.lin[2], w.lin[5], w.lin[8], 0,
-            w.pos[0], w.pos[1], w.pos[2], 1,
-        };
-        const float* IB = g_joints[b].invWorld; // row-major, row-vector (model->bone)
-        // SkinMat = IB * Wr (row-major 4x4 multiply)
-        for (int r = 0; r < 4; ++r)
-            for (int c = 0; c < 4; ++c)
-                m[r*4+c] = IB[r*4+0]*Wr[0*4+c] + IB[r*4+1]*Wr[1*4+c] + IB[r*4+2]*Wr[2*4+c] + IB[r*4+3]*Wr[3*4+c];
+        // Row-major, row-vector: the HLSL below does mul(rowvec, M).
+        castlemist::granny::skinMatrix(pb[b], W[b], m);
     }
     D3D11_MAPPED_SUBRESOURCE ms;
     if (SUCCEEDED(g_ctx->Map(g_bonePalette.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
@@ -263,18 +238,10 @@ bool cpu_skin_into(ID3D11Buffer* dst) {
     if (!dst || g_cpu_verts.empty() || g_joints.empty()) return false;
     std::vector<BoneXform> W;
     compute_world(W);
+    std::vector<castlemist::granny::PoseBone> pb = pose_bones();
     const int nb = static_cast<int>(g_joints.size());
     std::vector<std::array<float, 16>> S(nb); // per-bone SkinMat (row-major, row-vector)
-    for (int b = 0; b < nb; ++b) {
-        const BoneXform& w = W[b];
-        float Wr[16] = {w.lin[0], w.lin[3], w.lin[6], 0, w.lin[1], w.lin[4], w.lin[7], 0,
-                        w.lin[2], w.lin[5], w.lin[8], 0, w.pos[0], w.pos[1], w.pos[2], 1};
-        const float* IB = g_joints[b].invWorld;
-        float* m = S[b].data();
-        for (int r = 0; r < 4; ++r)
-            for (int c = 0; c < 4; ++c)
-                m[r*4+c] = IB[r*4+0]*Wr[0*4+c] + IB[r*4+1]*Wr[1*4+c] + IB[r*4+2]*Wr[2*4+c] + IB[r*4+3]*Wr[3*4+c];
-    }
+    for (int b = 0; b < nb; ++b) castlemist::granny::skinMatrix(pb[b], W[b], S[b].data());
     D3D11_MAPPED_SUBRESOURCE ms;
     if (FAILED(g_ctx->Map(dst, 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) return false;
     GVertex* out = static_cast<GVertex*>(ms.pData);

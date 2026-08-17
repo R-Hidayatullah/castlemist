@@ -1250,6 +1250,11 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             if (HIWORD(wparam) == CBN_SELCHANGE) {
                 int sel = static_cast<int>(SendMessageW(g_app->hwnd_anim_combo, CB_GETCURSEL, 0, 0));
                 castlemist::render::set_animation(sel - 1); // item 0 = bind pose (-1), 1..nclips = clips
+                // The "Game 1:1" surface decodes the same clips in the same order
+                // (both filter to the valid ones, in file order), so the one index
+                // means the same clip in both views -- which is what makes them
+                // comparable frame by frame.
+                castlemist::gw2bgfxview::set_animation(sel - 1);
                 // Selecting the rig implies the user wants to see it.
                 if (castlemist::render::has_skeleton() && !g_app->show_skeleton) {
                     g_app->show_skeleton = true;
@@ -1257,6 +1262,8 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
                     castlemist::render::set_show_skeleton(true);
                 }
                 InvalidateRect(g_app->hwnd_model, nullptr, FALSE);
+                if (g_app->hwnd_model_bgfx != nullptr)
+                    InvalidateRect(g_app->hwnd_model_bgfx, nullptr, FALSE);
             }
             return 0;
         case ID_ANIM_PLAY: {
@@ -1269,15 +1276,19 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
                 if (motion >= 0) {
                     SendMessageW(g_app->hwnd_anim_combo, CB_SETCURSEL, motion + 1, 0); // item0 = bind
                     castlemist::render::set_animation(motion);
+                    castlemist::gw2bgfxview::set_animation(motion);
                 }
             }
             castlemist::render::set_playing(playing);
+            castlemist::gw2bgfxview::set_playing(playing);
             if (playing) {
                 SetTimer(g_app->hwnd_main, TIMER_ANIM, 16, nullptr); // ~60 fps
             } else {
                 KillTimer(g_app->hwnd_main, TIMER_ANIM);
             }
             InvalidateRect(g_app->hwnd_model, nullptr, FALSE);
+            if (g_app->hwnd_model_bgfx != nullptr)
+                InvalidateRect(g_app->hwnd_model_bgfx, nullptr, FALSE);
             return 0;
         }
         case ID_AUDIO_PLAY: {
@@ -1413,6 +1424,14 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             (castlemist::render::is_playing() || castlemist::render::cloth_enabled() ||
              (castlemist::render::has_effects() && castlemist::render::show_effects()))) {
             InvalidateRect(g_app->hwnd_model, nullptr, FALSE);
+        }
+        // The two surfaces are alternate modes on the same pane and only the
+        // visible one is repainted, so the bgfx view needs its own tick: it
+        // advances anim_time from the frame clock inside render(), and without a
+        // repaint that clock never runs and playback silently stalls.
+        if (wparam == TIMER_ANIM && g_app->bgfx_view_active && g_app->hwnd_model_bgfx != nullptr &&
+            castlemist::gw2bgfxview::is_playing()) {
+            InvalidateRect(g_app->hwnd_model_bgfx, nullptr, FALSE);
         }
         if (wparam == TIMER_AUDIO) {
             update_audio_seek_ui(false);

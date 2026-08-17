@@ -65,12 +65,14 @@ int amatSelectTechnique(const AmatPackage& pkg, int maxQuality, int* outQuality)
 }
 
 uint32_t vsVariantFromMeshFlags(uint32_t meshFlags, uint32_t surfaceFlags, bool instanced) {
-    // sub_140AB2CA0, BgfxDraw.cpp mesh draw loop.
+    // BgfxDraw_MeshDrawLoop (0x140AB2CA0), transcribed. Bits 0x2|0x4 are blend
+    // weights + blend indices, so this first branch is the GPU-skinned feed --
+    // see the note on GrVsVariant before changing it.
     if ((meshFlags & 4) && (meshFlags & 2) && !(surfaceFlags & 2))
-        return kVsVariant1;
+        return kVsSkinned;
     if (!(meshFlags & 0x80))
-        return instanced ? kVsInstanced : kVsStatic;
-    return instanced ? kVsSkinnedInstanced : kVsSkinned;
+        return instanced ? kVsPlainInstanced : kVsPlain;
+    return instanced ? kVsFlag80Instanced : kVsFlag80;
 }
 
 namespace {
@@ -84,15 +86,22 @@ const AmatEffect* findEffectByToken(const AmatPass& pass, uint64_t token) {
 
 /// @brief `BgfxShader_FindVsVariant` (0x140BFE990).
 ///
-/// Searches for the requested variant id; failing that, retries once with
-/// `variant == 4 ? 2 : 0` -- i.e. a skinned+instanced request degrades to
-/// plain skinned, and everything else degrades to static. The client asserts
-/// if even that is absent.
+/// Searches for the requested variant id; failing that, retries once.
+///
+/// `BgfxShader_FindVsVariant` (0x140BFE990) does this on the raw ids:
+/// `v7 = 2; if (a1 != 4) v7 = 0;` -- so a request for 4 retries 2, and
+/// EVERYTHING else, the skinned feed included, retries 0. The client asserts
+/// ("vertexShader", BgfxShader.cpp:1037) if even that is absent.
+///
+/// Note what this means for skinning: an effect that offers no variant 1 falls
+/// back to the plain feed and simply is not skinned. That is the client's own
+/// behaviour, so a mesh drawing in bind pose here can be correct rather than a
+/// bug -- check the effect's variant list before assuming otherwise.
 const AmatVertexShaderVariant* findVsVariant(const AmatEffect& effect, uint32_t variant) {
     for (const auto& v : effect.vertexShaderVariants)
         if (v.variant == variant) return &v;
 
-    uint32_t fallback = (variant == kVsSkinnedInstanced) ? kVsSkinned : kVsStatic;
+    uint32_t fallback = (variant == kVsFlag80Instanced) ? kVsFlag80 : kVsPlain;
     if (fallback != variant) {
         for (const auto& v : effect.vertexShaderVariants)
             if (v.variant == fallback) return &v;

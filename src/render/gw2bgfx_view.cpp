@@ -34,6 +34,18 @@ void set_rotation_trim(float, float, float) {}
 void rotation_trim(float out[3]) { out[0] = out[1] = out[2] = 0.0f; }
 void set_force_two_sided(bool) {}
 bool force_two_sided() { return false; }
+bool has_skeleton() { return false; }
+int skeleton_bone_count() { return 0; }
+int animation_count() { return 0; }
+const char* animation_name(int) { return ""; }
+float animation_duration(int) { return 0.0f; }
+void set_animation(int) {}
+int current_animation() { return -1; }
+void set_anim_time(float) {}
+float anim_time() { return 0.0f; }
+void set_playing(bool) {}
+bool is_playing() { return false; }
+int skinned_draw_count() { return 0; }
 void render() {}
 const std::string& last_status() { return kUnavailable; }
 } // namespace castlemist::gw2bgfxview
@@ -54,6 +66,7 @@ const std::string& last_status() { return kUnavailable; }
 
 #include "castlemist/format/struct_template.h"
 #include "castlemist/native/cmp_decompress_method0.hpp"
+#include "castlemist/native/granny_pose.hpp"
 #include "castlemist/native/gw2_atex.hpp"
 #include "castlemist/native/gw2model.hpp"
 
@@ -153,6 +166,26 @@ struct Draw {
     /// the cull OR skipped. See State::forceTwoSided.
     uint64_t stateTwoSided = 0;
     uint32_t indexCount = 0;
+
+    /// @brief Skeleton bone index per BONE-BINDING SLOT; -1 where unresolved.
+    ///
+    /// This indirection is the whole trick of GW2 skinning and it is easy to get
+    /// wrong. A vertex's `GR_FVF_GROUP` component is four RAW uint8s that index
+    /// this geoset's own `boneBindings` table -- NOT the skeleton. Each binding
+    /// is a token64 that names a bone, matched through
+    /// `castlemist::model::tokenizeBoneName`. So `grbones` is uploaded per draw,
+    /// indexed by binding slot, and holds only the bones this geoset actually
+    /// touches (2..55 on real models) rather than the whole 294/302-bone rig.
+    ///
+    /// The engine agrees: `GrFvf.cpp` drops `GR_FVF_GROUP` entirely for geosets
+    /// with more than 255 bone bindings, which is exactly the point at which a
+    /// uint8 slot index would stop addressing a 255-entry `mat4[255]` palette.
+    std::vector<int> boneSlots;
+
+    /// True when the game would skin this draw: the FVF carries both weights and
+    /// indices, a rig resolved, and the slot count fits the palette. Drives the
+    /// vertex-shader variant, so it is decided at load, not per frame.
+    bool skinned = false;
 };
 
 struct State {
@@ -216,6 +249,31 @@ struct State {
     /// it off (middle-click the surface) for true 1:1 culling.
     bool forceTwoSided = true;
 
+    /// @name Animation
+    /// @{
+    /// The resolved rig. Owns the bone names and float arrays that `poseBones`
+    /// points into, so it must not be reassigned while `poseBones` is alive.
+    mdl::Skeleton skel;
+    /// Views into `skel.bones`, built once per model (see granny_pose.hpp).
+    std::vector<castlemist::granny::PoseBone> poseBones;
+    /// Decoded clips. Filtered to the valid ones, in file order -- the SAME
+    /// filter castlemist::render's ModelPreview applies, so clip N means the
+    /// same clip in both views and one UI selection can drive both.
+    std::vector<castlemist::granny::Anim> clips;
+    /// Track-name lookup for the selected clip; rebuilt on selection, not per
+    /// frame (a 400-track rig would otherwise rehash every name every frame).
+    std::unordered_map<std::string, int> trackByName;
+    int clipIndex = -1;   ///< -1 = bind pose.
+    float animTime = 0.0f;
+    bool playing = false;
+    /// Frame clock for `playing`. bgfx has no per-frame delta of its own here.
+    uint64_t lastTickMs = 0;
+    /// Per-bone model-space pose, recomputed once per frame and shared by every
+    /// draw -- the rig is posed once, not once per geoset.
+    std::vector<castlemist::granny::PoseXform> pose;
+    int skinnedDraws = 0;
+    /// @}
+
     std::string status;
 };
 State g;
@@ -255,6 +313,19 @@ void destroyDraws() {
     for (auto& kv : g.texByFileId)
         if (bgfx::isValid(kv.second) && kv.second.idx != g.texWhite.idx) bgfx::destroy(kv.second);
     g.texByFileId.clear();
+
+    // The rig belongs to the model, not the device: drop it with the draws so a
+    // model swap cannot leave the next one posed by the previous one's clips, or
+    // leave `poseBones` pointing into a freed bone array.
+    g.poseBones.clear();
+    g.skel = mdl::Skeleton{};
+    g.clips.clear();
+    g.trackByName.clear();
+    g.pose.clear();
+    g.clipIndex = -1;
+    g.animTime = 0.0f;
+    g.playing = false;
+    g.skinnedDraws = 0;
 }
 
 /// Model -> render space. GW2 authors Z-up; the view is Y-up. Doing the change
@@ -421,6 +492,41 @@ void rotation_trim(float out_deg[3]) {
 void set_force_two_sided(bool on) { g.forceTwoSided = on; }
 bool force_two_sided() { return g.forceTwoSided; }
 
+bool has_skeleton() { return !g.skel.bones.empty(); }
+int skeleton_bone_count() { return (int)g.skel.bones.size(); }
+int skinned_draw_count() { return g.skinnedDraws; }
+int animation_count() { return (int)g.clips.size(); }
+
+const char* animation_name(int i) {
+    return (i >= 0 && i < (int)g.clips.size()) ? g.clips[i].name.c_str() : "";
+}
+float animation_duration(int i) {
+    return (i >= 0 && i < (int)g.clips.size()) ? g.clips[i].duration : 0.0f;
+}
+int current_animation() { return g.clipIndex; }
+
+void set_animation(int clip_index) {
+    if (clip_index < -1 || clip_index >= (int)g.clips.size()) clip_index = -1;
+    g.clipIndex = clip_index;
+    g.animTime = 0.0f;
+    g.lastTickMs = GetTickCount64();
+    // Cache the clip's track lookup here rather than in render(): a 400-track rig
+    // would otherwise rehash every track name on every frame.
+    g.trackByName.clear();
+    if (clip_index >= 0) g.trackByName = castlemist::granny::trackIndexByName(g.clips[clip_index]);
+}
+
+void set_anim_time(float seconds) { g.animTime = seconds; }
+float anim_time() { return g.animTime; }
+
+void set_playing(bool playing) {
+    g.playing = playing;
+    // Reset the clock on every transition, so a pause does not bank elapsed wall
+    // time and jump the pose forward when playback resumes.
+    g.lastTickMs = GetTickCount64();
+}
+bool is_playing() { return g.playing; }
+
 const std::string& last_status() { return g.status; }
 
 bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
@@ -450,6 +556,52 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         return false;
     }
     if (geosets.empty()) { error = "model has no geosets"; g.status = error; return false; }
+
+    // ------------------------------------------------------------------
+    // The rig. Inline when the MODL carries skeleton data; otherwise the SKEL
+    // chunk's `fileReference` names another model's rig and we follow it, the
+    // same resolution build_model_preview does. Many rigged assets have
+    // NEITHER: an armour piece binds to the skeleton the character assembly
+    // supplies at runtime, and the piece does not reference it. Those keep their
+    // bone bindings but cannot be posed here, and draw unskinned.
+    // ------------------------------------------------------------------
+    mdl::Model extRig;
+    const mdl::Skeleton* srcSkel = &model.skeleton;
+    if (model.skeleton.bones.empty() && model.skeleton.externalRef != 0) {
+        try {
+            uint32_t rigBase = get_by_base_id(dat, model.skeleton.externalRef);
+            if (rigBase && rigBase - 1 < dat.mft_data_list.size()) {
+                std::vector<uint8_t> rigBytes = decomp(dat, rigBase - 1);
+                extRig = mdl::Extractor(rigBytes, tpl).extract();
+                if (!extRig.skeleton.bones.empty()) srcSkel = &extRig.skeleton;
+            }
+        } catch (const std::exception&) { /* no rig: draw unskinned */ }
+    }
+    g.skel = *srcSkel;
+    g.poseBones.resize(g.skel.bones.size());
+    for (size_t i = 0; i < g.skel.bones.size(); ++i) {
+        const mdl::Bone& b = g.skel.bones[i];
+        g.poseBones[i] = {b.name.c_str(), b.parent, b.localPos, b.localQuat, b.scaleShear, b.invWorld};
+    }
+
+    // Decode the embedded clips. `ptrSize` is per clip and must be passed
+    // through: a 64-bit packfile's blob reads Duration out of the Name
+    // pointer's high dword otherwise (see granny_anim.hpp). Keeping only the
+    // valid ones matches ModelPreview's filter, which is what keeps clip
+    // indices identical between this view and castlemist::render.
+    for (const mdl::AnimClip& c : model.anim.clips) {
+        if (c.rawGranny.empty()) continue;
+        castlemist::granny::Anim a =
+            castlemist::granny::parse(c.rawGranny.data(), c.rawGranny.size(), c.ptrSize);
+        if (a.valid) g.clips.push_back(std::move(a));
+    }
+
+    // boneBindings token64 -> skeleton index, via the engine's own bone-name
+    // tokenizer. Built once for the model and shared by every geoset.
+    std::unordered_map<uint64_t, int> tokMap;
+    tokMap.reserve(g.skel.bones.size() * 2);
+    for (size_t i = 0; i < g.skel.bones.size(); ++i)
+        tokMap[mdl::tokenizeBoneName(g.skel.bones[i].name)] = (int)i;
 
     // Bounding sphere, for framing.
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
@@ -537,8 +689,38 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         if (!pkg.ok()) { ++skipped; continue; }
 
         const int tech = amatSelectTechnique(pkg, maxQuality);
-        const bool skinned = (gs.fvf & (GR_FVF_WEIGHTS | GR_FVF_GROUP)) != 0;
-        const uint32_t variant = vsVariantFromMeshFlags(skinned ? 0x80u : 0u, 0u, false);
+
+        // Skinning needs BOTH halves of the vertex feed: `GR_FVF_WEIGHTS` (4 x
+        // uint8 normalized) and `GR_FVF_GROUP` (4 x uint8 RAW slot indices).
+        // Testing `!= 0` on the pair treated a weights-only geoset as skinned
+        // and bound the game's skinned vertex shader to a buffer with no bone
+        // indices at all. That combination is not hypothetical: `GrFvf.cpp`
+        // DROPS `GR_FVF_GROUP` when a geoset has more than 255 bone bindings,
+        // leaving exactly weights-without-indices.
+        const bool hasSkinFeed = (gs.fvf & GR_FVF_WEIGHTS) && (gs.fvf & GR_FVF_GROUP);
+
+        // Resolve this geoset's binding slots to rig bones. A slot count past
+        // the palette's 255 entries cannot be addressed by a uint8 index, which
+        // is the same limit the engine enforces by dropping GROUP.
+        std::vector<int> boneSlots;
+        if (hasSkinFeed && !g.skel.bones.empty() && gs.boneBindings.size() <= 255) {
+            boneSlots.assign(gs.boneBindings.size(), -1);
+            for (size_t k = 0; k < gs.boneBindings.size(); ++k) {
+                auto it = tokMap.find(gs.boneBindings[k]);
+                if (it != tokMap.end()) boneSlots[k] = it->second;
+            }
+        }
+        // An unresolvable rig means the palette would be all identity, so ask
+        // for the plain variant instead and let the geometry draw in bind pose
+        // rather than binding a skinned shader to a palette that says nothing.
+        const bool skinned = !boneSlots.empty();
+        // The skinned feed is the one the draw loop reaches via bits 0x2|0x4
+        // (weights + indices) -- variant 1, the ONLY variant whose vertex shader
+        // declares `grbones`. Passing 0x80 here asked for variant 2, which does
+        // not read the palette at all: the mesh would have drawn in bind pose no
+        // matter how correct the uploaded matrices were. See GrVsVariant.
+        const uint32_t variant =
+            vsVariantFromMeshFlags(skinned ? (GR_FVF_WEIGHTS | GR_FVF_GROUP) : 0u, 0u, false);
 
         // Pass 0 is the one that paints; later passes need a depth prepass we
         // do not run.
@@ -602,6 +784,10 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         surfTwoSided.materialFlags = 0x4000u;
         d.stateTwoSided = grComposeDrawState(*sel.effect, 0, surfTwoSided).state;
 
+        d.boneSlots = std::move(boneSlots);
+        d.skinned = skinned;
+        if (skinned) ++g.skinnedDraws;
+
         const bgfx::Memory* vmem = bgfx::copy(gs.vertexBytes.data(), (uint32_t)gs.vertexBytes.size());
         d.vb = bgfx::createVertexBuffer(vmem, layout);
         const bgfx::Memory* imem = bgfx::copy(gs.indices.data(), (uint32_t)(gs.indices.size() * 2));
@@ -616,9 +802,14 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         return false;
     }
 
-    char buf[160];
-    std::snprintf(buf, sizeof(buf), "%zu draws from %zu geosets%s", g.draws.size(), geosets.size(),
-                  skipped ? (" (" + std::to_string(skipped) + " skipped)").c_str() : "");
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%zu draws from %zu geosets%s%s", g.draws.size(), geosets.size(),
+                  skipped ? (" (" + std::to_string(skipped) + " skipped)").c_str() : "",
+                  g.skel.bones.empty()
+                      ? (g.clips.empty() ? "" : " -- clips present but no rig in this file")
+                      : (" -- rig " + std::to_string(g.skel.bones.size()) + " bones, " +
+                         std::to_string(g.skinnedDraws) + " skinned, " +
+                         std::to_string(g.clips.size()) + " clips").c_str());
     g.status = buf;
     return true;
 }
@@ -666,6 +857,38 @@ void render() {
     bx::mtxTranspose(worldT, g.world);
     bx::mtxTranspose(worldViewT, worldView);
 
+    // ------------------------------------------------------------------
+    // Pose the rig once for the whole frame. Every skinned draw reads the same
+    // per-bone result and only differs in which slots it picks out of it.
+    //
+    // The palette is MODEL-space: a skin matrix takes a bind-space vertex to
+    // animated model space, and `World` then does model -> render exactly as it
+    // does for static geometry. So nothing about the camera or the axis fix has
+    // to change to support skinning.
+    // ------------------------------------------------------------------
+    const bool posed = (g.clipIndex >= 0 && g.clipIndex < (int)g.clips.size() && !g.poseBones.empty());
+    if (posed) {
+        const castlemist::granny::Anim& clip = g.clips[g.clipIndex];
+        if (g.playing) {
+            const uint64_t now = GetTickCount64();
+            if (g.lastTickMs != 0 && now > g.lastTickMs)
+                g.animTime += float(now - g.lastTickMs) * 0.001f;
+            g.lastTickMs = now;
+        }
+        // Wrap rather than clamp, so a clip loops instead of freezing on its
+        // last key. granny_anim.hpp's sampler replicates boundary knots and does
+        // not loop by itself -- that is a playback decision, not a curve one.
+        float t = g.animTime;
+        if (clip.duration > 1e-6f) {
+            t = std::fmod(t, clip.duration);
+            if (t < 0.0f) t += clip.duration;
+        }
+        castlemist::granny::composePose(g.poseBones, &clip, t, g.pose, &g.trackByName);
+    }
+
+    // Scratch for one draw's palette, reused across draws and frames.
+    std::vector<float> palette;
+
     for (const Draw& d : g.draws) {
         auto setAll = [&](const std::vector<BgfxBlobUniform>& list) {
             for (const auto& u : list) {
@@ -674,6 +897,37 @@ void render() {
                 if (u.name == "ViewProjection") { bgfx::setUniform(h, viewProjT); continue; }
                 if (u.name == "World")          { bgfx::setUniform(h, worldT); continue; }
                 if (u.name == "WorldView")      { bgfx::setUniform(h, worldViewT); continue; }
+                // The engine's bone palette: `mat4 grbones[255]`, global param
+                // index 115 (GrGetGlobalParamIndex, table at 0x141BF9660). Read
+                // straight off the client's own embedded shaders, whose uniform
+                // table records grbones as type 4 / num 255 / regCount 1020
+                // (= 255 x 4 float4 rows) -- not inferred.
+                //
+                // Indexed by BONE-BINDING SLOT, not by rig bone; see
+                // Draw::boneSlots. Only the slots this geoset uses are written,
+                // and only as many entries as the shader declared: uploading the
+                // full 255 when the shader asked for fewer would overrun its
+                // constant buffer.
+                if (u.name == "grbones") {
+                    const uint16_t cap = std::max<uint8_t>(1, u.num);
+                    const size_t n = std::min<size_t>(d.boneSlots.size(), cap);
+                    palette.assign((size_t)cap * 16, 0.0f);
+                    for (size_t s = 0; s < (size_t)cap; ++s) {
+                        float* m = palette.data() + s * 16;
+                        const int bone = (s < n) ? d.boneSlots[s] : -1;
+                        if (!posed || bone < 0 || bone >= (int)g.pose.size()) {
+                            m[0] = m[5] = m[10] = m[15] = 1.0f; // identity -> bind pose
+                            continue;
+                        }
+                        // Transposed, because GW2's HLSL multiplies mul(M, v) --
+                        // the same reason World/ViewProjection go up transposed
+                        // above. Uploading the row-vector form skins every vertex
+                        // to garbage.
+                        castlemist::granny::skinMatrixColumnMajor(g.poseBones[bone], g.pose[bone], m);
+                    }
+                    bgfx::setUniform(h, palette.data(), cap);
+                    continue;
+                }
                 if (u.name == "CameraPosition") {
                     const float v[4] = {eye[0], eye[1], eye[2], 1.0f};
                     bgfx::setUniform(h, v);

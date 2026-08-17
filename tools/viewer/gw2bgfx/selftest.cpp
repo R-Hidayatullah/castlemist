@@ -115,14 +115,19 @@ static void testFvf() {
 // Vertex shader variant, from the mesh draw loop
 // ---------------------------------------------------------------------------
 static void testVsVariant() {
-    CHECK(vsVariantFromMeshFlags(0,     0, false) == kVsStatic,           "static");
-    CHECK(vsVariantFromMeshFlags(0,     0, true)  == kVsInstanced,        "instanced");
-    CHECK(vsVariantFromMeshFlags(0x80,  0, false) == kVsSkinned,          "skinned");
-    CHECK(vsVariantFromMeshFlags(0x80,  0, true)  == kVsSkinnedInstanced, "skinned+instanced");
-    // The 0x2|0x4 case wins over the skinned bit, because the client tests it first.
-    CHECK(vsVariantFromMeshFlags(0x86,  0, false) == kVsVariant1,         "variant 1");
-    // ...unless the surface's own 0x2 is set, which vetoes it.
-    CHECK(vsVariantFromMeshFlags(0x86,  2, false) == kVsSkinned,          "veto -> skinned");
+    CHECK(vsVariantFromMeshFlags(0,     0, false) == kVsPlain,           "plain");
+    CHECK(vsVariantFromMeshFlags(0,     0, true)  == kVsPlainInstanced,  "plain+instanced");
+    CHECK(vsVariantFromMeshFlags(0x80,  0, false) == kVsFlag80,          "0x80");
+    CHECK(vsVariantFromMeshFlags(0x80,  0, true)  == kVsFlag80Instanced, "0x80+instanced");
+    // Weights|indices (0x2|0x4) wins over 0x80, because the client tests it
+    // first -- and this is the branch that reaches the shader reading `grbones`.
+    CHECK(vsVariantFromMeshFlags(0x86,  0, false) == kVsSkinned,         "skinned");
+    // A real skinned geoset's FVF must land on the skinned feed, not on 0x80's:
+    // fvf 0x00010087 is POSITION|WEIGHTS|GROUP|TANGENT_FRAME|texcoord, and every
+    // rigged model in the archive looks like this.
+    CHECK(vsVariantFromMeshFlags(0x00010087u, 0, false) == kVsSkinned,   "real skinned fvf");
+    // ...unless the surface's own 0x2 vetoes it, which drops it to 0x80's feed.
+    CHECK(vsVariantFromMeshFlags(0x86,  2, false) == kVsFlag80,          "veto -> 0x80");
 }
 
 // ---------------------------------------------------------------------------
@@ -204,8 +209,9 @@ static void testEffectSelection() {
         AmatEffect e;
         e.token = token;
         e.pixelShaderIndex = ps;
-        e.vertexShaderVariants.push_back({kVsStatic, 1});
+        e.vertexShaderVariants.push_back({kVsPlain, 1});
         e.vertexShaderVariants.push_back({kVsSkinned, 2});
+        e.vertexShaderVariants.push_back({kVsFlag80, 3});
         return e;
     };
 
@@ -219,29 +225,45 @@ static void testEffectSelection() {
 
     // The material's own token wins over the default, even though the default
     // appears first in the effect list.
-    AmatSelection s = amatSelectEffect(pkg, 0, 0, kMatToken, kVsStatic);
+    AmatSelection s = amatSelectEffect(pkg, 0, 0, kMatToken, kVsPlain);
     CHECK(s.ok && s.pixelShaderIndex == 4, "material token should win");
     CHECK(s.matchedMaterialToken, "should report a real token match");
 
     // An unknown token falls back to the default -- on pass 0 only.
-    AmatSelection d0 = amatSelectEffect(pkg, 0, 0, 0xDEADBEEFull, kVsStatic);
+    AmatSelection d0 = amatSelectEffect(pkg, 0, 0, 0xDEADBEEFull, kVsPlain);
     CHECK(d0.ok && d0.pixelShaderIndex == 3, "pass 0 default fallback");
     CHECK(!d0.matchedMaterialToken, "default is not a token match");
 
     // On a later pass the client draws nothing instead. Substituting the
     // default here would render geometry the game never draws.
-    AmatSelection d1 = amatSelectEffect(pkg, 0, 1, 0xDEADBEEFull, kVsStatic);
+    AmatSelection d1 = amatSelectEffect(pkg, 0, 1, 0xDEADBEEFull, kVsPlain);
     CHECK(!d1.ok, "pass 1 must NOT fall back to the default");
 
     // The remap chain: kRemapFrom0 must find kRemapTo0.
     tech.passes[0].effects.push_back(makeEffect(AmatTokenChain::kRemapTo0, 6));
     pkg.techniques[0] = tech;
-    AmatSelection r = amatSelectEffect(pkg, 0, 0, AmatTokenChain::kRemapFrom0, kVsStatic);
+    AmatSelection r = amatSelectEffect(pkg, 0, 0, AmatTokenChain::kRemapFrom0, kVsPlain);
     CHECK(r.ok && r.pixelShaderIndex == 6, "remap chain");
 
-    // A skinned+instanced request degrades to plain skinned, not to static.
-    AmatSelection v = amatSelectEffect(pkg, 0, 0, kMatToken, kVsSkinnedInstanced);
-    CHECK(v.ok && v.variant == kVsSkinned, "variant fallback -> skinned, got %u", v.variant);
+    // The client's retry is on the raw ids: 4 degrades to 2, everything else to
+    // 0 (BgfxShader_FindVsVariant, `v7 = 2; if (a1 != 4) v7 = 0;`).
+    AmatSelection v = amatSelectEffect(pkg, 0, 0, kMatToken, kVsFlag80Instanced);
+    CHECK(v.ok && v.variant == kVsFlag80, "4 must degrade to 2, got %u", v.variant);
+
+    // And an absent SKINNED request degrades all the way to the plain feed, not
+    // to 2 -- so an effect with no variant 1 simply draws unskinned, which is
+    // what the client does too.
+    AmatEffect noSkin;
+    noSkin.token = kMatToken;
+    noSkin.pixelShaderIndex = 7;
+    noSkin.vertexShaderVariants.push_back({kVsPlain, 1});
+    noSkin.vertexShaderVariants.push_back({kVsFlag80, 3});
+    AmatTechnique t2 = tech;
+    t2.passes[0].effects.clear();
+    t2.passes[0].effects.push_back(noSkin);
+    pkg.techniques[0] = t2;
+    AmatSelection ns = amatSelectEffect(pkg, 0, 0, kMatToken, kVsSkinned);
+    CHECK(ns.ok && ns.variant == kVsPlain, "absent skinned -> plain, got %u", ns.variant);
 }
 
 int main() {

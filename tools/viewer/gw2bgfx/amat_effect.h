@@ -191,7 +191,7 @@ int amatSelectTechnique(const AmatPackage& pkg, int maxQuality, int* outQuality 
 
 /// @brief The vertex-shader variant ids, as the draw loop computes them.
 ///
-/// From `sub_140AB2CA0` (BgfxDraw.cpp, the mesh draw loop):
+/// From `BgfxDraw_MeshDrawLoop` (0x140AB2CA0), on the mesh word at +40:
 ///
 /// @verbatim
 ///   if ((meshFlags & 4) && (meshFlags & 2) && !(surfaceFlags & 2))  -> 1
@@ -199,15 +199,34 @@ int amatSelectTechnique(const AmatPackage& pkg, int maxQuality, int* outQuality 
 ///   else                            -> instanced ? 4 : 2
 /// @endverbatim
 ///
-/// `0x80` is the skinned bit. Variant 1 is the odd one out and has no obvious
-/// name; it is reached only for meshes carrying both 0x2 and 0x4 without the
-/// surface's own 0x2, so it is left numbered rather than guessed at.
+/// @par Variant 1 is the GPU-SKINNED one, and 0x80 is not the skinned bit
+///
+/// An earlier reading of this called `0x80` "the skinned bit" and named variant
+/// 2 `kVsSkinned`, leaving variant 1 as an unexplained special case. That was
+/// backwards, and it is checkable: walk every effect in a rigged model's AMAT
+/// and ask which vertex shaders declare the engine's bone palette `grbones`.
+/// It is **always variant 1, and only variant 1** -- verified across fileIds
+/// 1634661 (302-bone boss), 562804 and 904350, every material, with
+/// `gw2bgfx_probe --skinned`.
+///
+/// The engine's own condition agrees: bits `0x2` and `0x4` are `GR_FVF_WEIGHTS`
+/// and `GR_FVF_GROUP`, i.e. blend weights and blend indices. Variant 1 is
+/// selected exactly when a mesh carries BOTH -- which is precisely, and only,
+/// when GPU skinning is possible. `surfaceFlags & 2` is the opt-out.
+///
+/// So asking for variant 2 on a skinned mesh binds a shader that never reads the
+/// palette, and the model draws in bind pose no matter what is uploaded.
+///
+/// What variants 2/4 actually are is NOT settled here. `0x80` is
+/// `GR_FVF_TANGENT_FRAME` if this word is the geoset's GrFvf, which would make
+/// them the packed-tangent-frame feeds -- consistent, but not confirmed, so the
+/// names below stay descriptive of the evidence rather than of the guess.
 enum GrVsVariant : uint32_t {
-    kVsStatic           = 0,
-    kVsVariant1         = 1,
-    kVsSkinned          = 2,
-    kVsInstanced        = 3,
-    kVsSkinnedInstanced = 4,
+    kVsPlain            = 0, ///< No weights+indices, no 0x80.
+    kVsSkinned          = 1, ///< Weights + indices: the feed that reads `grbones`.
+    kVsFlag80           = 2, ///< 0x80 set (tangent frame, unconfirmed), not instanced.
+    kVsPlainInstanced   = 3,
+    kVsFlag80Instanced  = 4,
 };
 
 /// @copydoc GrVsVariant
