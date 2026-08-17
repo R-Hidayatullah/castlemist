@@ -25,6 +25,18 @@ CM_TEST(amat, decodes_real_quality_tokens_to_their_names) {
     CHECK(decodeToken23(805317257u) == "low");
 }
 
+// The top tier is the one case where the decoded name is NOT the word. `a` is
+// base-23 digit 0, and the decode loop runs while `v != 0`, so a trailing `a`
+// contributes nothing to the token and cannot come back out: the ultra
+// technique's token decodes to "ultr". This is a property of the engine's own
+// Token::Decode, not of our port -- which is exactly why
+// `BgfxShader_BuildPasses` switches on the first character alone. Pinning it
+// here so nobody "fixes the typo" back to a full-word compare.
+CM_TEST(amat, ultra_quality_token_decodes_without_its_trailing_a) {
+    CHECK(decodeToken23(805510811u) == "ultr");
+    CHECK(decodeToken23(805510811u) != "ultra");
+}
+
 // techniques[] are quality LEVELS, not passes. A viewer has no graphics-settings
 // slider, so selection takes the best tier the AMAT offers -- which only works if
 // the ranking is strictly ordered.
@@ -32,9 +44,17 @@ CM_TEST(amat, ranks_quality_tiers_in_order) {
     const int low = amatQualityRank(805317257u);
     const int medium = amatQualityRank(881522146u);
     const int high = amatQualityRank(805394902u);
+    const int ultra = amatQualityRank(805510811u);
 
     CHECK(low < medium);
     CHECK(medium < high);
+    CHECK(high < ultra);
+
+    // The regression this pins: ranking by full-word compare left `ultra` at 0,
+    // below `low`. The tier filter keeps only best-rank candidates, so every
+    // 4-technique AMAT silently drew its `high` shader and the quality cap of 4
+    // was unreachable -- 18 of 63 materials measured, 0 of them selecting 4.
+    CHECK_EQ(ultra, 4);
 
     // An unrecognised token must stay usable but never outrank a real tier,
     // otherwise one odd AMAT would drag selection down to its worst shader.

@@ -533,13 +533,32 @@ inline std::string decodeToken23(uint32_t token) {
 /// against GR_SHADER_QUALITIES; the game picks one via `m_techniqueIndex` from
 /// the graphics settings). A viewer has no such slider, so it takes the best on
 /// offer. Unknown tokens rank lowest but stay usable.
+///
+/// @par Switch on the FIRST CHARACTER, never the whole word
+///
+/// `BgfxShader_BuildPasses` (0x140BFFB20) decodes the token and switches on
+/// `name[0]` alone -- `u`/`h`/`m`/`l` -- and that is not a shortcut we may
+/// "improve" on, because the full words are not all recoverable.
+/// ::decodeToken23 peels base-23 digits while `v != 0`, and `a` is digit **0**,
+/// so a trailing `a` contributes nothing to the token and cannot be decoded
+/// back: `ultra` and `ultr` both encode to 805510811, which decodes to `ultr`.
+///
+/// Comparing against the string `"ultra"` therefore never matched. The top tier
+/// fell through to 0 -- ranked *below* `low` -- and the tier filter in
+/// ::Extractor::extractAmat, which keeps only candidates at the best rank,
+/// silently discarded every ultra technique and drew `high` instead. Measured
+/// over 30 models / 63 materials: 18 AMATs carry 4 techniques, and the
+/// `selectedQualityHistogram` contained no 4 at all before this fix.
 inline int amatQualityRank(uint32_t qualityToken) {
     const std::string q = decodeToken23(qualityToken);
-    if (q == "ultra")  return 4;
-    if (q == "high")   return 3;
-    if (q == "medium") return 2;
-    if (q == "low")    return 1;
-    return 0;
+    if (q.empty()) return 0;
+    switch (q[0]) {
+        case 'u': return 4;   // "ultr" -- see above, the trailing 'a' is unrecoverable
+        case 'h': return 3;
+        case 'm': return 2;
+        case 'l': return 1;
+        default:  return 0;   // client logs "Invalid shader technique name '%s'."
+    }
 }
 
 /// @brief One hop of the engine's hardcoded effect-token fallback chain.
