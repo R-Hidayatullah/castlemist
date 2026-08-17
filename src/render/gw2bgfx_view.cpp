@@ -32,6 +32,8 @@ void zoom(float) {}
 void reset_view() {}
 void set_rotation_trim(float, float, float) {}
 void rotation_trim(float out[3]) { out[0] = out[1] = out[2] = 0.0f; }
+void set_force_two_sided(bool) {}
+bool force_two_sided() { return false; }
 void render() {}
 const std::string& last_status() { return kUnavailable; }
 } // namespace castlemist::gw2bgfxview
@@ -144,7 +146,12 @@ struct Draw {
     std::vector<BgfxBlobUniform> vsU, psU;
     std::vector<std::pair<uint8_t, bgfx::TextureHandle>> textures;
     std::map<std::string, Vec4> matConsts;
+    /// The state the client would compose for a single-sided surface -- the
+    /// effect's cull bits included.
     uint64_t state = 0;
+    /// The same state composed with the engine's two-sided bit set, i.e. with
+    /// the cull OR skipped. See State::forceTwoSided.
+    uint64_t stateTwoSided = 0;
     uint32_t indexCount = 0;
 };
 
@@ -189,6 +196,25 @@ struct State {
     /// Camera distance as a multiple of the bounding radius, like
     /// castlemist::render's g_dist, so zoom feels the same in both views.
     float distMul = 3.0f;
+
+    /// Draw every surface two-sided instead of honouring the effect's cull bits.
+    ///
+    /// The client decides this per surface, from the runtime material word's
+    /// 0x4000 bit, and that word cannot be rebuilt from the archive yet (see the
+    /// note at the `surf.materialFlags` assignment in setModel). With it stuck at
+    /// zero NOTHING is two-sided, so every effect's cull applies -- and since
+    /// `shaderPassFlags` bit 0 is set on essentially every GW2 effect, that is
+    /// CULL_CCW everywhere. GW2 armour is full of single-sided sheet geometry
+    /// (capes, tabards, skirts, loincloths, hair cards), and a sheet whose back
+    /// faces are culled simply is not there from the other side: orbit under a
+    /// character and the underside of the skirt or cape vanishes.
+    ///
+    /// Defaulting this on is the lesser error. Drawing a genuinely single-sided
+    /// surface two-sided costs some fill rate and can show interior facets;
+    /// culling a genuinely two-sided one deletes geometry outright, and a
+    /// reference view you cannot orbit under is not much of a reference. Toggle
+    /// it off (middle-click the surface) for true 1:1 culling.
+    bool forceTwoSided = true;
 
     std::string status;
 };
@@ -390,6 +416,11 @@ void rotation_trim(float out_deg[3]) {
     out_deg[2] = g.rotTrim[2];
 }
 
+// Both states are composed at load, so this is just a pick at submit -- no
+// reload, and it can be flipped between frames.
+void set_force_two_sided(bool on) { g.forceTwoSided = on; }
+bool force_two_sided() { return g.forceTwoSided; }
+
 const std::string& last_status() { return g.status; }
 
 bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
@@ -558,6 +589,19 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         surf.materialFlags = 0;
         d.state = grComposeDrawState(*sel.effect, 0, surf).state;
 
+        // The same composition with the engine's two-sided bit, for
+        // State::forceTwoSided. Composing it rather than masking the cull field
+        // out of `d.state` afterwards keeps this on the client's own path:
+        // BgfxShader_SelectEffect (0x140BFDC40) guards the cull OR with
+        // `(materialFlags & 0x4000) == 0` and ORs `effect.renderState` in
+        // unconditionally afterwards, so masking would also strip any cull bits
+        // that came from renderState -- which the client would have kept.
+        // 0x4000 touches nothing else: neither grWriteMask (0x800 / 0x400) nor
+        // grComputeDepthState (0x80 / 0x100 / 0x200 / 0x1000 / 0x2000) reads it.
+        GrSurfaceState surfTwoSided = surf;
+        surfTwoSided.materialFlags = 0x4000u;
+        d.stateTwoSided = grComposeDrawState(*sel.effect, 0, surfTwoSided).state;
+
         const bgfx::Memory* vmem = bgfx::copy(gs.vertexBytes.data(), (uint32_t)gs.vertexBytes.size());
         d.vb = bgfx::createVertexBuffer(vmem, layout);
         const bgfx::Memory* imem = bgfx::copy(gs.indices.data(), (uint32_t)(gs.indices.size() * 2));
@@ -661,7 +705,7 @@ void render() {
 
         bgfx::setVertexBuffer(0, d.vb);
         bgfx::setIndexBuffer(d.ib, 0, d.indexCount);
-        bgfx::setState(d.state);
+        bgfx::setState(g.forceTwoSided ? d.stateTwoSided : d.state);
         bgfx::submit(0, d.program, 0, BGFX_DISCARD_ALL);
     }
 

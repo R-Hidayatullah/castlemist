@@ -69,6 +69,22 @@ void reset_view();
 void set_rotation_trim(float x_deg, float y_deg, float z_deg);
 void rotation_trim(float out_deg[3]);
 
+/// @brief Draw every surface two-sided rather than honouring the effect's cull
+///        bits. On by default.
+///
+/// The client suppresses culling per surface when the runtime material word has
+/// bit 0x4000 set (`BgfxShader_SelectEffect` guards the cull OR with it). That
+/// word is built at load time from data this view does not reconstruct, so it
+/// reads zero here -- meaning no surface is ever two-sided and every effect's
+/// cull applies. `shaderPassFlags` bit 0 is set on essentially every GW2 effect,
+/// so that is CULL_CCW on everything, and GW2's single-sided sheet geometry
+/// (capes, tabards, skirts, hair cards) disappears when viewed from its back
+/// side -- most obviously when orbiting underneath a character.
+///
+/// Turning this off restores true 1:1 culling, with that caveat.
+void set_force_two_sided(bool on);
+bool force_two_sided();
+
 /// @brief Draws and presents one frame. Cheap no-op when no model is loaded.
 void render();
 

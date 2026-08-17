@@ -37,7 +37,13 @@ How GW2 turns an AMAT into a draw (IDA, Gw2-64-disabled-aslr.exe):
   bgfx word is the ONLY source of blend + ALPHA_REF (bits 40-47). MODL
   `sortOrder`/`sortLayer` never gates blending; it only orders draws.
 - `out+464 |= effectRef.cullState` (0x1000000000 / 0x2000000000 = CULL_CW/CCW),
-  **skipped when meshFlags & 0x4000** (two-sided).
+  **skipped when materialFlags & 0x4000** (two-sided). It is the *material* word
+  `*(mesh->material + 28)`, not the mesh's: `BgfxDraw_MeshDrawLoop` passes it to
+  `BgfxShader_SelectEffect` as `a5`, which guards the OR with `(a5 & 0x4000) == 0`.
+  An earlier draft of this line said `meshFlags`; that is wrong, and it matters,
+  because the two words are read at different offsets and neither is the MODL
+  file field of the same name. Under that guard the client also swaps CW/CCW when
+  the mirrored-view global at `+1372836` is set.
 - one draw per pass index in `[surface+84, surface+88)`.
 
 **`shaderPassFlags` (effectData+16, mirrored to out+452) — the real meaning**

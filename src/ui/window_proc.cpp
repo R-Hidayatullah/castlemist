@@ -259,6 +259,16 @@ LRESULT CALLBACK BgfxWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) 
             InvalidateRect(hwnd, nullptr, FALSE);
         }
         return 0;
+    case WM_MBUTTONDOWN:
+        // Middle-click toggles the forced two-sided draw. It is on by default so
+        // that orbiting under a model does not make its capes and skirts vanish
+        // -- the runtime material word that tells the client which surfaces are
+        // two-sided is not reconstructible from the archive yet, so the cull bits
+        // would otherwise apply to geometry the game never culls. Off is the
+        // literal 1:1 state word.
+        castlemist::gw2bgfxview::set_force_two_sided(!castlemist::gw2bgfxview::force_two_sided());
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
