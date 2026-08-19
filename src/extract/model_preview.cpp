@@ -259,11 +259,28 @@ std::shared_ptr<ModelPreview> build_model_preview(const std::vector<uint8_t>& mo
     out->hasAnimation = model.anim.present;
     out->animationVersion = model.anim.present ? static_cast<int>(model.anim.chunkVersion) : -1;
     out->animationType = model.anim.typeKey;
+    out->animationModelRef = model.anim.modelReference;
+    for (const auto& imp : model.anim.imports) out->animationImports.push_back(imp.fileId);
+
+    // Pull in the external animation banks before decoding. A geometry MODL
+    // usually carries one static "zeropose" and names the files holding its real
+    // locomotion in ModelFileAnimationBank.imports; without this the model looks
+    // rigged but has nothing to play. Same shape as the external-rig resolution
+    // above, one level over: reference by fileId, followed through the DAT.
+    // Cheap when there is nothing to do -- the call returns immediately on an
+    // empty import list.
+    castlemist::model::resolveAnimImports(model, tpl, [&](uint32_t fileId) {
+        return load_modl_bytes_by_fileid(dat, fileId);
+    });
+
     for (const auto& c : model.anim.clips) {
         out->animationTokens.push_back(c.token);
         if (!c.rawGranny.empty()) {
             castlemist::granny::Anim clip = castlemist::granny::parse(c.rawGranny.data(), c.rawGranny.size(), c.ptrSize);
-            if (clip.valid) out->animClips.push_back(std::move(clip));
+            if (clip.valid) {
+                out->animClips.push_back(std::move(clip));
+                out->animClipBank.push_back(c.bankFileId);
+            }
         }
     }
 

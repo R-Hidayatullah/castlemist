@@ -340,18 +340,31 @@ struct ModelPreview {
     uint32_t externalSkeletonRef = 0; ///< fileId of a referenced external rig (0 = inline/none).
     /// @}
 
-    /// @name Embedded animation bank
+    /// @name Animation banks
     /// @brief Curves decoded from the Granny blob into @ref animClips.
     ///
     /// Constant and identity curves decode fully; keyframe formats are
-    /// best-effort. Most embedded clips are the static "zeropose" -- real
-    /// locomotion lives in external anim files.
+    /// best-effort. Most clips embedded in a geometry MODL are the static
+    /// "zeropose": real locomotion lives in animation-only files the model names
+    /// in `ModelFileAnimationBank.imports`. Those are followed by fileId and
+    /// their clips merged in here, so @ref animClips is the whole set the engine
+    /// would have on the model -- @ref animClipBank says where each came from.
     /// @{
     bool hasAnimation = false;             ///< An ANIM chunk was present and parsed.
     int animationVersion = -1;             ///< ANIM chunk version (selects the format variant).
     std::string animationType;             ///< Resolved `ModelFileAnimation*`/`Bank*` key.
-    std::vector<uint64_t> animationTokens; ///< Per-clip token64 name hashes.
+    std::vector<uint64_t> animationTokens; ///< token64 name hash per parsed clip, imports included.
     std::vector<castlemist::granny::Anim> animClips;   ///< Decoded clips (name, duration, tracks).
+    /// @brief Parallel to @ref animClips: source fileId, 0 = this model's own bank.
+    std::vector<uint32_t> animClipBank;
+    /// @brief fileIds of the external animation banks this model imports.
+    ///
+    /// Populated whether or not the load succeeded, so a UI can show an
+    /// unresolved reference rather than silently dropping it.
+    std::vector<uint32_t> animationImports;
+    /// @brief `ModelFileAnimationBankV19..V21` only: the model an animation-only
+    ///        file says it animates. 0 on the versions that dropped the field.
+    uint32_t animationModelRef = 0;
     /// @}
 
     /// @brief Real game shaders per material, for the "Shader" render mode.

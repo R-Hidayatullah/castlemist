@@ -694,6 +694,69 @@ void cmd_scancloth(const Args& a) {
     emit(j);
 }
 
+// Scan MODL entries for the geometry<->animation wiring, loading the DAT +
+// template ONCE. Counts three shapes and lists the models that import:
+//   * animationOnly -- ANIM chunk, no meshes: one Granny clip inline, the files
+//     a model's banks point AT.
+//   * withImports   -- ModelFileAnimationBank.imports is non-empty, i.e. the
+//     model names its external animation banks in the file itself.
+//   * withClips     -- has at least one decodable clip of its own.
+// --ids <file> takes a list of MFT indices (one per line); otherwise
+// --offset/--count/--step walk a range.
+void cmd_scananim(const Args& a) {
+    Gw2Dat dat;
+    load_dat_file(dat, need(a, "dat"));
+    std::string tpl_path = need(a, "template");
+    std::ifstream tin(tpl_path, std::ios::binary);
+    if (!tin) fail("cannot open template: " + tpl_path);
+    json tpl; try { tin >> tpl; } catch (const std::exception& ex) { fail(std::string("template JSON: ") + ex.what()); }
+
+    std::vector<size_t> ids;
+    if (has(a, "ids")) {
+        std::ifstream in(a.at("ids")); size_t v; while (in >> v) ids.push_back(v);
+    } else {
+        size_t off  = has(a, "offset") ? to_u64(a.at("offset")) : 0;
+        size_t cnt  = has(a, "count")  ? to_u64(a.at("count"))  : 20000;
+        size_t step = has(a, "step")   ? to_u64(a.at("step"))   : 1;
+        size_t end  = std::min(dat.mft_data_list.size(), off + cnt);
+        for (size_t i = off; i < end; i += step) ids.push_back(i);
+    }
+    size_t maxHits = has(a, "limit") ? to_u64(a.at("limit")) : 20;
+
+    json hits = json::array();
+    size_t scanned = 0, modl = 0, withImports = 0, animOnly = 0, withClips = 0;
+    for (size_t idx : ids) {
+        if (idx >= dat.mft_data_list.size()) continue;
+        const MftData& e = dat.mft_data_list[idx];
+        if (e.size == 0) continue;
+        std::vector<uint8_t> data;
+        try { data = decompress_entry(read_entry_bytes(dat.file_info.file_path, e), e.compression_flag); }
+        catch (...) { continue; }
+        ++scanned;
+        if (data.size() < 16 || data[0] != 'P' || data[1] != 'F' || tag_at(data, 8) != "MODL") continue;
+        ++modl;
+        castlemist::model::Model m;
+        try { m = castlemist::model::Extractor(data, tpl).extract(); } catch (...) { continue; }
+        if (!m.anim.present) continue;
+        if (!m.anim.clips.empty()) ++withClips;
+        if (m.meshes.empty() && !m.anim.clips.empty()) ++animOnly;
+        if (m.anim.imports.empty()) continue;
+        ++withImports;
+        if (hits.size() >= maxHits) continue;
+        json imps = json::array();
+        for (const auto& imp : m.anim.imports)
+            imps.push_back({{"fileId", imp.fileId}, {"sequenceCount", imp.sequences.size()}});
+        hits.push_back({{"index", idx}, {"meshes", m.meshes.size()},
+                        {"localClips", m.anim.clips.size()},
+                        {"importCount", m.anim.imports.size()}, {"imports", std::move(imps)}});
+    }
+    json j;
+    j["ok"] = true; j["scanned"] = scanned; j["modl"] = modl;
+    j["withClips"] = withClips; j["animationOnly"] = animOnly; j["withImports"] = withImports;
+    j["hits"] = std::move(hits);
+    emit(j);
+}
+
 void cmd_model(const Args& a) {
     // template
     std::string tpl_path = need(a, "template");
@@ -1093,17 +1156,37 @@ void cmd_skel(const Args& a) {
     json tpl;
     try { tin >> tpl; } catch (const std::exception& ex) { fail(std::string("template JSON error: ") + ex.what()); }
 
+    // The DAT stays open past extraction so --imports can follow the model's
+    // external animation banks (each is another MODL, fetched by fileId).
+    Gw2Dat dat;
+    bool haveDat = false;
     std::vector<uint8_t> data;
     if (has(a, "data")) {
         data = read_file(a.at("data"));
     } else {
-        Gw2Dat dat;
         load_dat_file(dat, need(a, "dat"));
+        haveDat = true;
         uint32_t idx = 0;
         data = extract_bytes(dat, a, idx);
     }
 
     castlemist::model::Model model = castlemist::model::Extractor(data, tpl).extract();
+
+    // --imports: load ModelFileAnimationBank.imports and merge their clips in,
+    // the way the client's Model_CreateAnimationBanksFromImports does. Off by
+    // default because it multiplies the work -- a character can name 60+ banks.
+    int mergedClips = 0;
+    if (has(a, "imports") && haveDat) {
+        mergedClips = castlemist::model::resolveAnimImports(model, tpl, [&](uint32_t fileId) {
+            std::vector<uint8_t> b;
+            uint32_t base = get_by_base_id(dat, fileId);
+            if (base && base - 1 < dat.mft_data_list.size())
+                b = decompress_entry(read_entry_bytes(dat.file_info.file_path,
+                                                      dat.mft_data_list[base - 1]),
+                                     dat.mft_data_list[base - 1].compression_flag);
+            return b;
+        });
+    }
     const auto& sk = model.skeleton;
 
     json bones = json::array();
@@ -1112,10 +1195,22 @@ void cmd_skel(const Args& a) {
                          {"worldPos", {b.worldPos[0], b.worldPos[1], b.worldPos[2]}},
                          {"localPos", {b.localPos[0], b.localPos[1], b.localPos[2]}}});
     json clips = json::array();
-    for (const auto& c : model.anim.clips)
+    for (const auto& c : model.anim.clips) {
+        // Decode the header so the listing is readable: an animation-only file
+        // has no token64 (its bank entry lives in whatever model imports it),
+        // and the clip's only name is the one inside the Granny blob.
+        std::string name; float duration = 0; size_t trackGroups = 0;
+        if (!c.rawGranny.empty()) {
+            castlemist::granny::Anim ga =
+                castlemist::granny::parse(c.rawGranny.data(), c.rawGranny.size(), c.ptrSize);
+            if (ga.valid) { name = ga.name; duration = ga.duration; trackGroups = ga.tracks.size(); }
+        }
         clips.push_back({{"token", c.token}, {"moveSpeed", c.moveSpeed},
+                         {"bankFileId", c.bankFileId},
+                         {"name", name}, {"duration", duration}, {"trackCount", trackGroups},
                          {"grannyBytes", c.rawGranny.size()}, {"fixups", c.fixups.size()},
                          {"grannyFileOffset", c.grannyFileOffset}});
+    }
 
     // Which clip to inspect/validate (default 0 = usually the zeropose).
     size_t clipIdx = 0;
@@ -1275,6 +1370,18 @@ void cmd_skel(const Args& a) {
         }
     }
 
+    // External animation banks: the files this model pulls clips from. Reported
+    // unresolved (fileId + declared sequence names) -- following them needs the
+    // DAT, which `modelinfo` deliberately does not touch.
+    json imports = json::array();
+    for (const auto& imp : model.anim.imports) {
+        json seqs = json::array();
+        for (const auto& s : imp.sequences)
+            seqs.push_back({{"token", s.token}, {"duration", s.duration}});
+        imports.push_back({{"fileId", imp.fileId}, {"sequenceCount", imp.sequences.size()},
+                           {"sequences", std::move(seqs)}});
+    }
+
     json j;
     j["ok"] = true;
     j["skeleton"] = {{"present", sk.present}, {"fileVersion", sk.fileVersion},
@@ -1282,7 +1389,11 @@ void cmd_skel(const Args& a) {
                      {"boneCount", sk.bones.size()}, {"bones", std::move(bones)}};
     j["animation"] = {{"present", model.anim.present}, {"chunkVersion", model.anim.chunkVersion},
                       {"typeKey", model.anim.typeKey}, {"clipCount", model.anim.clips.size()},
-                      {"clips", std::move(clips)}};
+                      {"clips", std::move(clips)},
+                      {"modelReference", model.anim.modelReference},
+                      {"importCount", model.anim.imports.size()},
+                      {"mergedImportClips", mergedClips},
+                      {"imports", std::move(imports)}};
     j["poseValidation"] = std::move(validate);
     emit(j);
 }
@@ -1416,7 +1527,7 @@ void cmd_encode_texture(const Args& a) {
 int main(int argc, char** argv) {
     if (argc < 2) {
         fail("usage: gw2dat_cli <info|list|lookup|resolve|extract|texture|parse|sniff|"
-             "compress|decompress|encode-texture> [--flags]");
+             "compress|decompress|encode-texture|scananim> [--flags]");
     }
     std::string cmd = argv[1];
     Args a = parse_args(argc, argv, 2);
@@ -1434,6 +1545,7 @@ int main(int argc, char** argv) {
         else if (cmd == "map") cmd_map(a);
         else if (cmd == "scanpf") cmd_scanpf(a);
         else if (cmd == "scancloth") cmd_scancloth(a);
+        else if (cmd == "scananim") cmd_scananim(a);
         else if (cmd == "amat") cmd_amat(a);
         else if (cmd == "effscan") cmd_effscan(a);
         else if (cmd == "matcensus") cmd_matcensus(a);

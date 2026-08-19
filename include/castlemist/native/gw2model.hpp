@@ -163,12 +163,38 @@ struct AnimClip {
     std::vector<uint32_t> fixups;     // byte offsets into rawGranny holding pointers
     size_t grannyFileOffset = 0;      // absolute offset of rawGranny[0] within the packfile
     int ptrSize = 4;                  // blob pointer width (4=32-bit packfile, 8=64-bit)
+    uint32_t bankFileId = 0;          // 0 = this file's own bank; else the imported file it came from
 };
+
+// One entry of ModelFileAnimationBank.imports -- the geometry<->animation link.
+// A character/weapon MODL ships GEOM plus at most a couple of local clips and
+// names the animation-only .modl files holding the rest of its locomotion here.
+// That is why some MODLs are "geometry only" and others "animation only": same
+// container, different chunks, joined by this array.
+//
+// Engine side (Gw2-64.exe): Model_CreateAnimationBanksFromImports @0x140CDB750
+// walks it and calls Model_AddAnimationBank @0x140CDA760 per entry, which loads
+// `filename` as another ModelFile and chains it onto the model's
+// m_animationBanks list. Clip lookup then walks that chain, root bank first
+// (ModelAnimBank_FindAnimation @0x140D327A0).
+struct AnimImportSequence {
+    uint64_t token = 0;   // token64 clip name the import declares
+    float duration = 0;   // seconds; 0 on <=V24, whose imports list bare tokens
+};
+struct AnimImport {
+    uint32_t fileId = 0;                        // MODL fileId of the animation-only file
+    std::vector<AnimImportSequence> sequences;  // clips it is declared to provide
+};
+
 struct AnimInfo {
     bool present = false;
     uint16_t chunkVersion = 0;        // ANIM chunk version (selects the format variant)
     std::string typeKey;              // resolved ModelFileAnimation*/Bank* type key
+    // Clips readable from this file alone. resolveAnimImports() appends the
+    // imported banks' clips here, each tagged with its AnimClip::bankFileId.
     std::vector<AnimClip> clips;
+    std::vector<AnimImport> imports;  // external banks, unresolved (fileId only)
+    uint32_t modelReference = 0;      // BankV19..V21 only: the model this anim file animates
 };
 
 // --- particle / effect system (MODL cloudData + lightData) ---
@@ -2464,7 +2490,10 @@ private:
             if (!fieldOffset(root, "bank", off, fj)) return;
             std::string bankType = ptrTargetStruct(fj);
             size_t bank = follow(anim + off);
-            if (!bank || bankType.empty()) return;
+            // No bank at all: an animation-only .modl, whose single Granny
+            // animation sits in the chunk itself. This is the common shape --
+            // 15k+ files in the DAT carry an ANIM chunk and nothing else.
+            if (!bank || bankType.empty()) { parseInlineGrannyAnim(out, root, anim); return; }
             listType = bankType; listStart = bank;
             if (!fieldOffset(listType, "animations", off, fj)) return;
         }
@@ -2500,6 +2529,94 @@ private:
                 }
             }
             out.anim.clips.push_back(std::move(c));
+        }
+        parseAnimImports(out, listType, listStart);
+    }
+
+    // An animation-only .modl has ModelFileAnimation.bank == null and stores its
+    // one Granny animation directly in `anim`
+    // (PackGrannyAnimationType{ animation: byte[], pointers: dword[] }) -- the
+    // same blob+fixup pair a banked clip keeps under ModelAnimationData.data.
+    //
+    // The engine takes this branch too: ModelFile_LoadAnimations @0x140CFF8A0
+    // rebases the blob in place when the chunk has no bank pointer. Without
+    // this, every animation-only file parses to zero clips.
+    void parseInlineGrannyAnim(Model& out, const std::string& rootType, size_t anim) {
+        size_t off; json fj;
+        if (!fieldOffset(rootType, "anim", off, fj)) return;
+        std::string gt = fj.value("type", std::string());
+        if (gt.empty()) return;
+
+        size_t gs = anim + off, go; json gf;
+        if (!fieldOffset(gt, "animation", go, gf)) return;
+        uint32_t bn = 0; size_t bb = arrayAt(gs + go, bn);
+        if (!bb || !bn || bb + bn > n_) return;
+
+        AnimClip c;
+        c.ptrSize = ptr_;              // blob pointer width follows the packfile
+        c.token = 0;                   // no bank entry, so no token64 name; the
+                                       // clip's name lives inside the Granny blob
+        c.rawGranny.assign(d_ + bb, d_ + bb + bn);
+        c.grannyFileOffset = bb;
+        if (fieldOffset(gt, "pointers", go, gf)) {
+            uint32_t pn = 0; size_t pb = arrayAt(gs + go, pn);
+            for (uint32_t k = 0; pb && k < pn && pb + 4ull * k + 4 <= n_; ++k)
+                c.fixups.push_back(rd32(pb + 4ull * k));
+        }
+        out.anim.clips.push_back(std::move(c));
+    }
+
+    // ---- external animation banks (ModelFileAnimationBank.imports) ----
+    //
+    // Records the references only; nothing is loaded here, because the extractor
+    // holds one packfile and has no archive handle. resolveAnimImports() (below,
+    // outside the class) does the loading with a caller-supplied fetch.
+    //
+    // Field drift: up to ModelAnimationImportDataV24 an import lists bare clip
+    // names (`sequenceTokens`: token64[]); from V25 it lists
+    // `sequences`: ModelAnimationImportSequenceV*{ name, duration }[]. Both are
+    // handled -- ANIM v25 is what a live client ships, older DATs hit the first.
+    void parseAnimImports(Model& out, const std::string& bankType, size_t bank) {
+        size_t off; json fj;
+        if (fieldOffset(bankType, "modelReference", off, fj))
+            out.anim.modelReference = decodeFilenameAt(bank + off);
+        if (!fieldOffset(bankType, "imports", off, fj)) return;
+        std::string impType = fj.contains("element") ? fj["element"].value("struct", std::string()) : std::string();
+        int impSize = impType.empty() ? 0 : typeSize(impType);
+        if (impSize <= 0) return;
+
+        uint32_t n = 0;
+        size_t base = arrayAt(bank + off, n);
+        if (n > 4096) n = 4096;   // sanity clamp, same spirit as the clip cap
+        for (uint32_t i = 0; base && i < n; ++i) {
+            size_t e = base + (size_t)i * (size_t)impSize;
+            if (e + (size_t)impSize > n_) break;
+            AnimImport imp;
+            size_t o; json f;
+            if (fieldOffset(impType, "filename", o, f)) imp.fileId = decodeFilenameAt(e + o);
+            if (!imp.fileId) continue;   // a null ref is not a bank
+
+            if (fieldOffset(impType, "sequenceTokens", o, f)) {          // <= V24
+                uint32_t sn = 0; size_t sb = arrayAt(e + o, sn);
+                for (uint32_t k = 0; sb && k < sn && sb + 8ull * k + 8 <= n_; ++k)
+                    imp.sequences.push_back({rd64(sb + 8ull * k), 0.0f});
+            } else if (fieldOffset(impType, "sequences", o, f)) {        // >= V25
+                std::string seqType = f.contains("element") ? f["element"].value("struct", std::string()) : std::string();
+                int seqSize = seqType.empty() ? 0 : typeSize(seqType);
+                size_t no = 0, dofs = 0; json nf, df;
+                bool hasName = seqSize > 0 && fieldOffset(seqType, "name", no, nf);
+                bool hasDur  = seqSize > 0 && fieldOffset(seqType, "duration", dofs, df);
+                uint32_t sn = 0; size_t sb = arrayAt(e + o, sn);
+                for (uint32_t k = 0; sb && seqSize > 0 && k < sn; ++k) {
+                    size_t se = sb + (size_t)k * (size_t)seqSize;
+                    if (se + (size_t)seqSize > n_) break;
+                    AnimImportSequence s;
+                    if (hasName) s.token = rd64(se + no);
+                    if (hasDur)  s.duration = rdf(se + dofs);
+                    imp.sequences.push_back(s);
+                }
+            }
+            out.anim.imports.push_back(std::move(imp));
         }
     }
 
@@ -2555,6 +2672,60 @@ inline std::vector<std::string> describeFvf(uint32_t fvf, int* strideOut = nullp
     }
     if (strideOut) *strideOut = stride;
     return comps;
+}
+
+// Load every animation bank named in `model.anim.imports` and merge its clips
+// into `model.anim.clips`, tagging each with AnimClip::bankFileId. Returns the
+// number of clips merged.
+//
+// `loadById(uint32_t fileId) -> std::vector<uint8_t>` fetches a decompressed
+// MODL from wherever the caller keeps the archive (the extractor holds one
+// packfile and knows nothing about the DAT). Return empty to skip an import;
+// throwing is fine too, it is caught per file.
+//
+// Semantics chosen to match the engine's bank chain:
+//   * root bank first -- a clip token already present is NOT overwritten by an
+//     import, because Model_AnimateIsNeeded walks m_animationBanks from the
+//     head and stops at the first bank that answers.
+//   * no recursion. Model_CreateAnimationBanksFromImports only reads the ROOT
+//     bank's imports, so an imported bank's own imports are ignored, exactly as
+//     in the client.
+//   * every clip in an imported bank is taken, not just the ones its
+//     `sequences` list declares. That list is the engine's early-out hint
+//     (ModelAnimBankDir_SetImportSequences @0x140CF3E70), not a filter on the
+//     bank's contents.
+template <class LoadModlById>
+inline int resolveAnimImports(Model& model, const json& tpl, LoadModlById&& loadById,
+                              size_t maxFiles = 64) {
+    if (model.anim.imports.empty()) return 0;
+    // Token identity is what shadowing works on, so a clip WITHOUT a token
+    // never shadows and is never shadowed. Animation-only files are exactly
+    // that case (no bank entry, hence no token64), and they are most of what an
+    // import list points at -- deduping them would collapse 55 banks into one.
+    std::unordered_map<uint64_t, char> seen;
+    seen.reserve(model.anim.clips.size() * 2 + 16);
+    for (const AnimClip& c : model.anim.clips)
+        if (c.token) seen.emplace(c.token, 1);
+
+    int merged = 0;
+    size_t opened = 0;
+    for (const AnimImport& imp : model.anim.imports) {
+        if (!imp.fileId || opened >= maxFiles) continue;
+        std::vector<uint8_t> bytes;
+        try { bytes = loadById(imp.fileId); } catch (const std::exception&) { continue; }
+        if (bytes.empty()) continue;
+        ++opened;
+        Model bank;
+        try { bank = Extractor(bytes, tpl).extract(); } catch (const std::exception&) { continue; }
+        for (AnimClip& c : bank.anim.clips) {
+            if (c.rawGranny.empty()) continue;
+            if (c.token && !seen.emplace(c.token, 1).second) continue;   // shadowed by an earlier bank
+            c.bankFileId = imp.fileId;
+            model.anim.clips.push_back(std::move(c));
+            ++merged;
+        }
+    }
+    return merged;
 }
 
 } // namespace castlemist::model
