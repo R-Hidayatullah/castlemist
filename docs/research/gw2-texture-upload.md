@@ -127,6 +127,43 @@ territory."*
 (`0x140B17820`) refuses render targets outright (*"cannot upscale render targets"*)
 and validates both the current and target formats before touching anything.
 
+## Mip chains stop at 4x4 (2026-08-19)
+
+An atex mip chain does **not** run to 1x1. Measured on model 291977's material
+textures (`gw2bgfx_probe`, which now prints a per-texture table): a 512x512 DXT5
+carries 8 levels and a 256x256 carries 7 — both bottom out at **4x4**, one BC
+block. A full chain would be 10 and 9.
+
+That matters for anything that hands the file's levels straight to bgfx.
+`createTexture2D(..., hasMips=true, ...)` sizes the texture for the *whole* chain
+down to 1x1 and will sample the tail levels, so the last two are read whether or
+not they were uploaded. The 1:1 surface now uploads the file's own levels — that
+is what the client samples — and only synthesises past where the file stops, with
+a 2x2 box filter.
+
+The failure this fixes is not subtle-but-harmless: uploading a lone level 0 to a
+mipped texture leaves bgfx nothing to minify into, so distant surfaces crawl and
+grazing-angle surfaces — most of a creature's body — smear. The sampler is
+created `BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC`.
+
+Two smaller things settled in the same pass, both already true of the D3D path
+and now of the bgfx one:
+
+- **The full/reduced pair applies here too.** Most textures ship as two adjacent
+  MFT rows, reduced at baseId B-1 and full at B, same format and exactly double
+  the dimensions; which member a material's fileId names is not consistent. See
+  the full/reduced entry in [[castlemist-app]] for the original measurement. The
+  1:1 surface took the row verbatim, which is why the same model could come out
+  softer there than in "Full" / "Shader".
+- **`CTEX` decodes as `ATEX`.** The first byte is aliased (`0x43` -> `0x41`)
+  before parsing, consistent with [[gw2-atex-atep-decode]]'s finding that the
+  container magic is write-only.
+
+Still open from that table: three of model 291977's material texture fileIds
+resolve to rows that fail `ATEX: bad magic` and fall back to the 1x1 white
+stand-in. Whether those references are stale or the fileId -> row indirection is
+wrong for them was not chased.
+
 ## Not done
 
 - The mip-generation path. `BgfxTexture_UploadLevels` takes `startLevel`/`endLevel`

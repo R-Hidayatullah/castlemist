@@ -42,9 +42,10 @@ names an address, that is `Gw2-64.exe` with ASLR disabled, imagebase
 | note | what it settles |
 | ---- | --------------- |
 | [gw2-render-asset-pipeline.md](gw2-render-asset-pipeline.md) | how shaders, models and animation load. **58 shader packages are baked into the exe; shaderId 58 loads an AMAT from the dat** — both paths traced to the branch. Also the definitive GrFvf → bgfx::VertexLayout builder, and the 28-entry granny-attribute → fvf table |
-| [gw2-texture-upload.md](gw2-texture-upload.md) | decoded pixels → GPU texture, the half [gw2-cmp-img-symbol-map](gw2-cmp-img-symbol-map.md) stops short of. **DdiTexture carries two format fields four bytes apart** — GR_FORMAT at +0x0C, bgfx::TextureFormat at +0x10 — and confusing them breaks every pitch calculation |
+| [gw2-texture-upload.md](gw2-texture-upload.md) | decoded pixels → GPU texture, the half [gw2-cmp-img-symbol-map](gw2-cmp-img-symbol-map.md) stops short of. **DdiTexture carries two format fields four bytes apart** — GR_FORMAT at +0x0C, bgfx::TextureFormat at +0x10 — and confusing them breaks every pitch calculation. Also: **atex mip chains stop at 4x4**, so a mipped bgfx texture samples two levels the file never shipped |
 | [vertex-fvf.md](vertex-fvf.md) | GrFvf, the flexible vertex format, and how a vertex declaration is read |
 | [gw2-skeleton.md](gw2-skeleton.md) | bind pose from SKEL (inverse of the inverse-world), embedded animation, GPU skinning |
+| [gw2-animation-banks.md](gw2-animation-banks.md) | **a rigged model does not contain its animation** — it keeps a zeropose and *imports* the rest by fileId through `ModelFileAnimationBank.imports`. The imported files have no bank and no token64: one Granny clip sits inline. Also the rigid attach (bindings, no vertex weights) that leaves a sword hanging in the air |
 | [gw2-granny-64bit.md](gw2-granny-64bit.md) | granny blobs are 32- **or** 64-bit. Read a 64-bit one as 32-bit and you get zero-length arrays, not an error -- animations silently came out 0.0 s long |
 | [gw2-cloth-system.md](gw2-cloth-system.md) | the Verlet/PBD cloth solver, reconstructed |
 | [gw2-particle-system.md](gw2-particle-system.md) | baked emitters in MODL cloudData/lightData |
