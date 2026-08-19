@@ -40,6 +40,7 @@ int skeleton_bone_count() { return 0; }
 int animation_count() { return 0; }
 const char* animation_name(int) { return ""; }
 float animation_duration(int) { return 0.0f; }
+uint32_t animation_bank_file(int) { return 0; }
 void set_animation(int) {}
 int current_animation() { return -1; }
 void set_anim_time(float) {}
@@ -206,6 +207,26 @@ struct Draw {
     /// indices, a rig resolved, and the slot count fits the palette. Drives the
     /// vertex-shader variant, so it is decided at load, not per frame.
     bool skinned = false;
+
+    /// @brief Rig bone this WHOLE geoset hangs off, for a rigid attach; -1 if none.
+    ///
+    /// A geoset with bone bindings but NO per-vertex weights/indices is GW2's
+    /// rigid attach -- a weapon blade, a shoulder pad, a helmet, a belt buckle.
+    /// It is the majority case on armour: on model 291977, four of nine geosets
+    /// are rigid and only five carry a vertex skin feed.
+    ///
+    /// The client draws these with vertex-shader variant 0, which declares no
+    /// `grbones` at all (BgfxDraw_MeshDrawLoop @ 0x140AB2CA0 picks variant 1
+    /// only when the mesh flags carry BOTH 0x2 and 0x4). It still animates them,
+    /// because every surface carries its OWN transform -- the draw context takes
+    /// `surface->transform` from surface+8 -- and for a rigid piece the engine
+    /// puts the attach bone's animated world matrix there.
+    ///
+    /// So the bone folds into this draw's `World`/`WorldView` instead of into a
+    /// palette. Without it the piece stays at bind pose while the smooth-skinned
+    /// geosets around it animate: the sword hangs in the air, the pauldron slides
+    /// off the shoulder. That is the "only part of the model animates" failure.
+    int rigidBone = -1;
 };
 
 struct State {
@@ -280,6 +301,9 @@ struct State {
     /// filter castlemist::render's ModelPreview applies, so clip N means the
     /// same clip in both views and one UI selection can drive both.
     std::vector<castlemist::granny::Anim> clips;
+    /// Parallel to `clips`: 0 = the model's own ANIM chunk, else the fileId of
+    /// the imported animation bank the clip came from.
+    std::vector<uint32_t> clipBank;
     /// Track-name lookup for the selected clip; rebuilt on selection, not per
     /// frame (a 400-track rig would otherwise rehash every name every frame).
     std::unordered_map<std::string, int> trackByName;
@@ -292,6 +316,7 @@ struct State {
     /// draw -- the rig is posed once, not once per geoset.
     std::vector<castlemist::granny::PoseXform> pose;
     int skinnedDraws = 0;
+    int rigidDraws = 0;
     /// @}
 
     std::string status;
@@ -340,12 +365,37 @@ void destroyDraws() {
     g.poseBones.clear();
     g.skel = mdl::Skeleton{};
     g.clips.clear();
+    g.clipBank.clear();
     g.trackByName.clear();
     g.pose.clear();
     g.clipIndex = -1;
     g.animTime = 0.0f;
     g.playing = false;
     g.skinnedDraws = 0;
+    g.rigidDraws = 0;
+}
+
+/// Halves an RGBA8 image with a 2x2 box filter. Used to continue a mip chain
+/// past where the file stops: GW2's atex chains bottom out at 4x4, but bgfx
+/// sizes a mipped texture for the full chain down to 1x1 and samples whatever
+/// is in the tail levels.
+std::vector<uint8_t> boxHalve(const std::vector<uint8_t>& src, int w, int h) {
+    const int nw = w > 1 ? w >> 1 : 1, nh = h > 1 ? h >> 1 : 1;
+    std::vector<uint8_t> dst((size_t)nw * nh * 4);
+    for (int y = 0; y < nh; ++y) {
+        const int y0 = std::min(2 * y, h - 1), y1 = std::min(2 * y + 1, h - 1);
+        for (int x = 0; x < nw; ++x) {
+            const int x0 = std::min(2 * x, w - 1), x1 = std::min(2 * x + 1, w - 1);
+            const uint8_t* a = &src[((size_t)y0 * w + x0) * 4];
+            const uint8_t* b = &src[((size_t)y0 * w + x1) * 4];
+            const uint8_t* c = &src[((size_t)y1 * w + x0) * 4];
+            const uint8_t* d = &src[((size_t)y1 * w + x1) * 4];
+            uint8_t* o = &dst[((size_t)y * nw + x) * 4];
+            for (int k = 0; k < 4; ++k)
+                o[k] = (uint8_t)((a[k] + b[k] + c[k] + d[k] + 2) >> 2);
+        }
+    }
+    return dst;
 }
 
 /// Model -> render space. GW2 authors Z-up; the view is Y-up. Doing the change
@@ -523,6 +573,9 @@ const char* animation_name(int i) {
 float animation_duration(int i) {
     return (i >= 0 && i < (int)g.clips.size()) ? g.clips[i].duration : 0.0f;
 }
+uint32_t animation_bank_file(int i) {
+    return (i >= 0 && i < (int)g.clipBank.size()) ? g.clipBank[i] : 0u;
+}
 int current_animation() { return g.clipIndex; }
 
 void set_animation(int clip_index) {
@@ -621,12 +674,26 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
     // Plenty of rigged-looking assets land here: an armour piece keeps its bone
     // bindings but references no skeleton, because the character assembly
     // supplies one at runtime.
+    //
+    // Before decoding, follow the model's external animation banks. A rigged
+    // MODL typically carries one static zeropose and names the files holding
+    // its actual locomotion in ModelFileAnimationBank.imports; skipping them is
+    // why a character used to load with a rig and nothing to play.
     if (!g.skel.bones.empty()) {
+        mdl::resolveAnimImports(model, tpl, [&](uint32_t fileId) {
+            std::vector<uint8_t> bytes;
+            uint32_t base = get_by_base_id(dat, fileId);
+            if (base && base - 1 < dat.mft_data_list.size()) bytes = decomp(dat, base - 1);
+            return bytes;
+        });
         for (const mdl::AnimClip& c : model.anim.clips) {
             if (c.rawGranny.empty()) continue;
             castlemist::granny::Anim a =
                 castlemist::granny::parse(c.rawGranny.data(), c.rawGranny.size(), c.ptrSize);
-            if (a.valid) g.clips.push_back(std::move(a));
+            if (a.valid) {
+                g.clips.push_back(std::move(a));
+                g.clipBank.push_back(c.bankFileId);
+            }
         }
     }
 
@@ -664,6 +731,37 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
     // Textures. base - 1: get_by_base_id returns a 1-based baseId, so reading
     // `base` lands on the next archive entry -- which parses as a neighbouring
     // ATEX just often enough to bind the wrong image silently.
+    // Header-only peek at one MFT row's atex, for the resolution-pair check.
+    auto peekAtex = [&](size_t row, int& w, int& h, std::string& fmt) -> bool {
+        if (row >= dat.mft_data_list.size()) return false;
+        try {
+            std::vector<uint8_t> b = decomp(dat, (uint32_t)row);
+            if (b.size() >= 4 && b[0] == 0x43) b[0] = 0x41;   // CTEX -> ATEX alias
+            castlemist::atex::Texture t = castlemist::atex::parse(b.data(), b.size());
+            w = t.width; h = t.height; fmt = t.fmt_name;
+            return w > 0 && h > 0;
+        } catch (const std::exception&) { return false; }
+    };
+
+    // GW2 ships most textures as a PAIR of adjacent MFT rows: a reduced member
+    // at baseId B-1 and the full one at B, same format, exactly double the
+    // dimensions. Which member a material's fileId names is NOT consistent, so a
+    // loader that takes the row verbatim samples the half-size copy on some
+    // materials and the full one on others.
+    //
+    // The D3D views already resolve this (texture_source.cpp resolve_res_index,
+    // defaulting to full). This surface did not, which is why the same model can
+    // come out softer here than in "Full" / "Shader".
+    auto fullResRow = [&](size_t row) -> size_t {
+        int w0, h0; std::string f0;
+        if (!peekAtex(row, w0, h0, f0)) return row;
+        int w1, h1; std::string f1;
+        // A double-size sibling one row above => this row is the reduced member.
+        if (peekAtex(row + 1, w1, h1, f1) && f1 == f0 && w1 == 2 * w0 && h1 == 2 * h0)
+            return row + 1;
+        return row;
+    };
+
     auto loadTexture = [&](uint32_t fileId) -> bgfx::TextureHandle {
         auto it = g.texByFileId.find(fileId);
         if (it != g.texByFileId.end()) return it->second;
@@ -671,13 +769,40 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         uint32_t base = get_by_base_id(dat, fileId);
         if (base && base - 1 < dat.mft_data_list.size()) {
             try {
-                std::vector<uint8_t> bytes = decomp(dat, base - 1);
+                const size_t row = fullResRow(base - 1);
+                std::vector<uint8_t> bytes = decomp(dat, (uint32_t)row);
+                if (bytes.size() >= 4 && bytes[0] == 0x43) bytes[0] = 0x41;
                 castlemist::atex::Texture t = castlemist::atex::parse(bytes.data(), bytes.size());
                 castlemist::atex::Image im = castlemist::atex::decode(t, 0);
                 if (im.width > 0 && im.height > 0) {
-                    const bgfx::Memory* mem = bgfx::copy(im.rgba.data(), (uint32_t)im.rgba.size());
-                    h = bgfx::createTexture2D((uint16_t)im.width, (uint16_t)im.height, false, 1,
-                                              bgfx::TextureFormat::RGBA8, 0, mem);
+                    // WITH a mip chain, and anisotropic. A lone level 0 leaves
+                    // bgfx nothing to minify into: distant surfaces crawl, and a
+                    // grazing-angle surface -- most of a creature's body -- covers
+                    // a long footprint with one level and smears.
+                    h = bgfx::createTexture2D((uint16_t)im.width, (uint16_t)im.height, true, 1,
+                                              bgfx::TextureFormat::RGBA8,
+                                              BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC);
+                    if (bgfx::isValid(h)) {
+                        std::vector<uint8_t> prev = im.rgba;
+                        int pw = im.width, ph = im.height;
+                        bgfx::updateTexture2D(h, 0, 0, 0, 0, (uint16_t)pw, (uint16_t)ph,
+                                              bgfx::copy(prev.data(), (uint32_t)prev.size()));
+                        for (uint8_t lvl = 1; pw > 1 || ph > 1; ++lvl) {
+                            const int nw = pw > 1 ? pw >> 1 : 1, nh = ph > 1 ? ph >> 1 : 1;
+                            std::vector<uint8_t> cur;
+                            // Prefer the file's own mip -- that is what the client
+                            // samples -- and only synthesise past where it stops.
+                            if (lvl < t.mips.size()) {
+                                castlemist::atex::Image mi = castlemist::atex::decode(t, lvl);
+                                if (mi.width == nw && mi.height == nh) cur = std::move(mi.rgba);
+                            }
+                            if (cur.empty()) cur = boxHalve(prev, pw, ph);
+                            bgfx::updateTexture2D(h, 0, lvl, 0, 0, (uint16_t)nw, (uint16_t)nh,
+                                                  bgfx::copy(cur.data(), (uint32_t)cur.size()));
+                            prev = std::move(cur);
+                            pw = nw; ph = nh;
+                        }
+                    }
                 }
             } catch (const std::exception&) { /* fall through to the stand-in */ }
         }
@@ -733,11 +858,18 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         // leaving exactly weights-without-indices.
         const bool hasSkinFeed = (gs.fvf & GR_FVF_WEIGHTS) && (gs.fvf & GR_FVF_GROUP);
 
-        // Resolve this geoset's binding slots to rig bones. A slot count past
-        // the palette's 255 entries cannot be addressed by a uint8 index, which
-        // is the same limit the engine enforces by dropping GROUP.
+        // Resolve this geoset's binding slots to rig bones. Done for EVERY
+        // geoset, not just the ones with a vertex skin feed: a geoset's bindings
+        // are what attach it to the rig, and a geoset without weights still has
+        // them (see Draw::rigidBone). Resolving only the skinned ones is what
+        // left rigid pieces frozen at bind pose.
+        //
+        // A slot count past the palette's 255 entries cannot be addressed by a
+        // uint8 index, which is the same limit the engine enforces by dropping
+        // GROUP -- that cap belongs to the vertex-indexed path only, so it is
+        // applied below rather than here.
         std::vector<int> boneSlots;
-        if (hasSkinFeed && !g.skel.bones.empty() && gs.boneBindings.size() <= 255) {
+        if (!g.skel.bones.empty() && !gs.boneBindings.empty()) {
             boneSlots.assign(gs.boneBindings.size(), -1);
             for (size_t k = 0; k < gs.boneBindings.size(); ++k) {
                 auto it = tokMap.find(gs.boneBindings[k]);
@@ -747,7 +879,18 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         // An unresolvable rig means the palette would be all identity, so ask
         // for the plain variant instead and let the geometry draw in bind pose
         // rather than binding a skinned shader to a palette that says nothing.
-        const bool skinned = !boneSlots.empty();
+        const bool skinned = hasSkinFeed && !boneSlots.empty() && boneSlots.size() <= 255;
+
+        // Rigid attach: no per-vertex feed, so there is no palette to index --
+        // the geoset hangs off ONE bone and the client hands it that bone's
+        // matrix as the surface transform. Take the first binding that resolved,
+        // which on real geosets is the only one (probe: `skin` column = rigid,
+        // `binds` = 1). Same rule model_preview.cpp applies for the D3D view, so
+        // both surfaces agree on which pieces follow the rig.
+        int rigidBone = -1;
+        if (!skinned)
+            for (int bi : boneSlots)
+                if (bi >= 0) { rigidBone = bi; break; }
         // The skinned feed is the one the draw loop reaches via bits 0x2|0x4
         // (weights + indices) -- variant 1, the ONLY variant whose vertex shader
         // declares `grbones`. Passing 0x80 here asked for variant 2, which does
@@ -818,9 +961,12 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
         surfTwoSided.materialFlags = 0x4000u;
         d.stateTwoSided = grComposeDrawState(*sel.effect, 0, surfTwoSided).state;
 
-        d.boneSlots = std::move(boneSlots);
         d.skinned = skinned;
-        if (skinned) ++g.skinnedDraws;
+        d.rigidBone = rigidBone;
+        // Only the vertex-indexed path reads the slot table; a rigid draw has
+        // its bone in rigidBone and must not also upload a palette.
+        if (skinned) { d.boneSlots = std::move(boneSlots); ++g.skinnedDraws; }
+        else if (rigidBone >= 0) ++g.rigidDraws;
 
         const bgfx::Memory* vmem = bgfx::copy(gs.vertexBytes.data(), (uint32_t)gs.vertexBytes.size());
         d.vb = bgfx::createVertexBuffer(vmem, layout);
@@ -843,6 +989,7 @@ bool set_model(Gw2Dat& dat, uint32_t mft_index, std::string& error) {
                       ? (g.clips.empty() ? "" : " -- clips present but no rig in this file")
                       : (" -- rig " + std::to_string(g.skel.bones.size()) + " bones, " +
                          std::to_string(g.skinnedDraws) + " skinned, " +
+                         std::to_string(g.rigidDraws) + " rigid, " +
                          std::to_string(g.clips.size()) + " clips").c_str());
     g.status = buf;
     return true;
@@ -935,13 +1082,38 @@ void render() {
     std::vector<float> palette;
 
     for (const Draw& d : g.draws) {
+        // --------------------------------------------------------------
+        // This draw's own world matrix.
+        //
+        // The engine has one per SURFACE, not one per model: BgfxDraw_MeshDrawLoop
+        // copies `surface->transform` (surface+8) into the draw context, and
+        // BgfxShader_BindUniforms feeds that as `World`. For a rigid attach the
+        // engine has already folded the attach bone's animated matrix into it.
+        //
+        // Same row-vector chain as a palette slot -- bindPos * InverseBind *
+        // AnimatedWorld * world -- so an unposed or unattached draw falls back
+        // to plain `g.world` and nothing moves.
+        // --------------------------------------------------------------
+        float drawWorldT[16], drawWorldViewT[16];
+        if (posed && d.rigidBone >= 0 && d.rigidBone < (int)g.pose.size()) {
+            float sk[16], dw[16], dwv[16];
+            castlemist::granny::skinMatrix(g.poseBones[d.rigidBone], g.pose[d.rigidBone], sk);
+            bx::mtxMul(dw, sk, g.world);
+            bx::mtxMul(dwv, dw, view);
+            bx::mtxTranspose(drawWorldT, dw);
+            bx::mtxTranspose(drawWorldViewT, dwv);
+        } else {
+            std::memcpy(drawWorldT, worldT, sizeof drawWorldT);
+            std::memcpy(drawWorldViewT, worldViewT, sizeof drawWorldViewT);
+        }
+
         auto setAll = [&](const std::vector<BgfxBlobUniform>& list) {
             for (const auto& u : list) {
                 if (u.isSampler()) continue;
                 bgfx::UniformHandle h = uniformFor(u);
                 if (u.name == "ViewProjection") { bgfx::setUniform(h, viewProjT); continue; }
-                if (u.name == "World")          { bgfx::setUniform(h, worldT); continue; }
-                if (u.name == "WorldView")      { bgfx::setUniform(h, worldViewT); continue; }
+                if (u.name == "World")          { bgfx::setUniform(h, drawWorldT); continue; }
+                if (u.name == "WorldView")      { bgfx::setUniform(h, drawWorldViewT); continue; }
                 if (u.name == "View")           { bgfx::setUniform(h, viewT); continue; }
                 // The engine's bone palette: `mat4 grbones[255]`, global param
                 // index 115 (GrGetGlobalParamIndex, table at 0x141BF9660). Read

@@ -27,9 +27,13 @@
 #include <string>
 #include <vector>
 
+#include <set>
+#include <unordered_map>
+
 #include <nlohmann/json.hpp>
 
 #include "castlemist/native/cmp_decompress_method0.hpp"
+#include "castlemist/native/gw2_atex.hpp"
 #include "castlemist/native/gw2dat.h"
 #include "castlemist/native/gw2model.hpp"
 
@@ -56,10 +60,26 @@ static std::vector<uint8_t> decomp(Gw2Dat& dat, uint32_t idx) {
     return castlemist::cmp::decompress_method0(std::span<const uint8_t>(s).subspan(8), u);
 }
 
+// Header-only peek at an MFT row's ATEX, for the resolution-pair check below.
+static bool peekAtex(Gw2Dat& dat, size_t row, int& w, int& h, std::string& fmt) {
+    if (row >= dat.mft_data_list.size()) return false;
+    try {
+        std::vector<uint8_t> b = decomp(dat, (uint32_t)row);
+        if (b.size() >= 4 && b[0] == 'C') b[0] = 'A';      // CTEX -> ATEX alias
+        castlemist::atex::Texture t = castlemist::atex::parse(b.data(), b.size());
+        w = t.width; h = t.height; fmt = t.fmt_name;
+        return w > 0 && h > 0;
+    } catch (const std::exception&) { return false; }
+}
+
 int main(int argc, char** argv) {
     const std::string datPath = arg(argc, argv, "--dat");
     const std::string tplPath = arg(argc, argv, "--template", "dumps/packfile/gw2_packfile.json");
-    const uint32_t index = (uint32_t)std::stoul(arg(argc, argv, "--index", "291977"));
+    uint32_t index = (uint32_t)std::stoul(arg(argc, argv, "--index", "291977"));
+    // --fileid takes the number the archive browser and the MODL references use;
+    // --index takes a raw MFT row. They differ by the baseId indirection, which
+    // is the same lookup gw2bgfx_view does before loading a rig.
+    const uint32_t fileId = (uint32_t)std::stoul(arg(argc, argv, "--fileid", "0"));
     // The engine's quality cap. Ultra is the top tier; lowering it here shows
     // which technique the client would pick on lower settings.
     const int maxQuality = std::stoi(arg(argc, argv, "--quality", "4"));
@@ -82,7 +102,7 @@ int main(int argc, char** argv) {
 
     if (datPath.empty()) {
         std::fprintf(stderr, "usage: gw2bgfx_probe --dat <Gw2.dat> [--template <json>] "
-                             "[--index <baseId>] [--quality 0..4] [--skinned]\n");
+                             "[--index <mftRow> | --fileid <id>] [--quality 0..4] [--skinned]\n");
         return 2;
     }
 
@@ -94,20 +114,52 @@ int main(int argc, char** argv) {
     Gw2Dat dat;
     load_dat_file(dat, datPath);
 
+    if (fileId) {
+        uint32_t base = get_by_base_id(dat, fileId);
+        if (!base || base - 1 >= dat.mft_data_list.size()) {
+            std::fprintf(stderr, "fileId %u does not resolve to an MFT row\n", fileId);
+            return 2;
+        }
+        index = base - 1;
+        std::printf("fileId %u -> baseId %u -> MFT row %u\n", fileId, base, index);
+    }
+
     std::vector<uint8_t> modlBytes = decomp(dat, index);
     mdl::Extractor ex(modlBytes, tpl);
     mdl::Model model = ex.extract();                 // materials, for tokens and texture lists
     std::vector<mdl::GeosetRaw> geosets = ex.extractGeosetsRaw();
 
-    std::printf("model %u: %zu geosets, %zu materials\n\n",
-                index, geosets.size(), model.materials.size());
+    // The rig, resolved the same way gw2bgfx_view does: inline when the MODL
+    // carries one, otherwise the SKEL chunk's fileReference names another
+    // model's. Needed here so the table can say whether each geoset's bone
+    // bindings actually reach a bone -- an unresolved binding is a piece of the
+    // model that will not follow the animation.
+    mdl::Model extRig;
+    const mdl::Skeleton* skel = &model.skeleton;
+    if (model.skeleton.bones.empty() && model.skeleton.externalRef != 0) {
+        uint32_t rigBase = get_by_base_id(dat, model.skeleton.externalRef);
+        if (rigBase && rigBase - 1 < dat.mft_data_list.size()) {
+            try {
+                std::vector<uint8_t> rigBytes = decomp(dat, rigBase - 1);
+                extRig = mdl::Extractor(rigBytes, tpl).extract();
+                if (!extRig.skeleton.bones.empty()) skel = &extRig.skeleton;
+            } catch (const std::exception&) { /* leave unresolved; table shows 0/n */ }
+        }
+    }
+    std::unordered_map<uint64_t, int> tokMap;
+    for (size_t i = 0; i < skel->bones.size(); ++i)
+        tokMap[mdl::tokenizeBoneName(skel->bones[i].name)] = (int)i;
+
+    std::printf("model %u: %zu geosets, %zu materials, rig %zu bones%s\n\n",
+                index, geosets.size(), model.materials.size(), skel->bones.size(),
+                skel == &extRig.skeleton ? " (external)" : "");
 
     // ---------------------------------------------------------------------
     // Geometry: the stride identity
     // ---------------------------------------------------------------------
     std::printf("== geometry ==\n");
-    std::printf("%-4s %-10s %7s %7s %7s %7s %7s  %s\n",
-                "#", "fvf", "verts", "file", "ddi", "bgfx", "idx", "verdict");
+    std::printf("%-4s %-10s %7s %7s %7s %7s %7s %8s %6s  %s\n",
+                "#", "fvf", "verts", "file", "ddi", "bgfx", "idx", "binds", "skin", "verdict");
     int strideBad = 0;
     for (size_t i = 0; i < geosets.size(); ++i) {
         const mdl::GeosetRaw& g = geosets[i];
@@ -117,12 +169,85 @@ int main(int argc, char** argv) {
         const uint32_t file = g.stride();
         const bool ok = (ddi == gpu) && (file == ddi);
         if (!ok) ++strideBad;
-        std::printf("%-4zu 0x%08X %7u %7u %7u %7u %7zu  %s\n",
-                    i, g.fvf, g.vertexCount, file, ddi, gpu, g.indices.size(),
+        // Bone bindings vs. the per-vertex skin feed. A geoset can carry
+        // bindings WITHOUT weights+indices: that is GW2's rigid attach, and
+        // it still has to follow the rig.
+        const bool skinFeed = (g.fvf & GR_FVF_WEIGHTS) && (g.fvf & GR_FVF_GROUP);
+        size_t resolved = 0;
+        for (uint64_t tok : g.boneBindings)
+            if (tokMap.count(tok)) ++resolved;
+        char bind[24];
+        std::snprintf(bind, sizeof(bind), "%zu/%zu", resolved, g.boneBindings.size());
+        std::printf("%-4zu 0x%08X %7u %7u %7u %7u %7zu %8s %6s  %s\n",
+                    i, g.fvf, g.vertexCount, file, ddi, gpu, g.indices.size(), bind,
+                    skinFeed ? "vtx" : (g.boneBindings.empty() ? "-" : "rigid"),
                     ok ? "upload verbatim" : "MISMATCH");
     }
     std::printf("\n%d of %zu geosets need conversion before upload.\n\n",
                 strideBad, geosets.size());
+
+    // ---------------------------------------------------------------------
+    // Textures: what resolution actually reaches the GPU
+    // ---------------------------------------------------------------------
+    // The renderer uploads atex mip 0 and nothing else, so mip 0's size IS the
+    // sampled resolution. A texture whose stored mip 0 is far below its declared
+    // header size, or that fails to parse and falls back to the 1x1 stand-in, is
+    // the difference between a crisp surface and a smeared one.
+    std::printf("== textures ==\n");
+    std::printf("%-10s %-6s %-10s %11s %5s %s\n",
+                "fileId", "fourCC", "format", "header", "mips", "mip0 (what is sampled)");
+    {
+        std::set<uint32_t> seen;
+        for (const mdl::Material& mat : model.materials)
+            for (const auto& tex : mat.textures) {
+                if (!tex.fileId || !seen.insert(tex.fileId).second) continue;
+                uint32_t tb = get_by_base_id(dat, tex.fileId);
+                if (!tb || tb - 1 >= dat.mft_data_list.size()) {
+                    std::printf("%-10u %-6s %-10s %11s %5s %s\n",
+                                tex.fileId, "-", "-", "-", "-", "NOT IN MFT -> 1x1 white stand-in");
+                    continue;
+                }
+                try {
+                    std::vector<uint8_t> tb2 = decomp(dat, tb - 1);
+                    castlemist::atex::Texture t = castlemist::atex::parse(tb2.data(), tb2.size());
+                    char cc[5] = {t.fourcc[0], t.fourcc[1], t.fourcc[2], t.fourcc[3], 0};
+                    char hdr[16], m0[64];
+                    std::snprintf(hdr, sizeof(hdr), "%dx%d", t.width, t.height);
+                    if (t.mips.empty()) {
+                        std::snprintf(m0, sizeof(m0), "NO MIPS -> decode throws -> 1x1 white");
+                    } else {
+                        const auto& m = t.mips.front();
+                        std::snprintf(m0, sizeof(m0), "%dx%d%s", m.width, m.height,
+                                      (m.width == t.width && m.height == t.height)
+                                          ? "" : "  <-- SMALLER THAN HEADER");
+                    }
+                    // GW2 ships most textures as a PAIR of MFT rows: a reduced
+                    // member at baseId B-1 and the full one at B, same format,
+                    // exactly double the dimensions. Which member a material's
+                    // fileId lands on is not consistent, so a renderer that
+                    // takes the row verbatim samples the half-size copy on some
+                    // materials and the full one on others -- and half size
+                    // magnified over a preview viewport reads as "blurry".
+                    char sib[64] = "";
+                    { int w1, h1; std::string f1;
+                      size_t row = tb - 1;
+                      if (peekAtex(dat, row + 1, w1, h1, f1) && f1 == t.fmt_name
+                          && w1 == 2 * t.width && h1 == 2 * t.height)
+                          std::snprintf(sib, sizeof(sib), "  REDUCED -- full %dx%d at row %zu",
+                                        w1, h1, row + 1);
+                      else if (row >= 1 && peekAtex(dat, row - 1, w1, h1, f1) && f1 == t.fmt_name
+                               && t.width == 2 * w1 && t.height == 2 * h1)
+                          std::snprintf(sib, sizeof(sib), "  full (reduced sibling below)");
+                    }
+                    std::printf("%-10u %-6s %-10s %11s %5zu %s%s\n",
+                                tex.fileId, cc, t.fmt_name.c_str(), hdr, t.mips.size(), m0, sib);
+                } catch (const std::exception& e) {
+                    std::printf("%-10u %-6s %-10s %11s %5s parse failed: %s -> 1x1 white\n",
+                                tex.fileId, "?", "?", "?", "?", e.what());
+                }
+            }
+    }
+    std::printf("\n");
 
     // ---------------------------------------------------------------------
     // Selection: run the engine's own rule per material

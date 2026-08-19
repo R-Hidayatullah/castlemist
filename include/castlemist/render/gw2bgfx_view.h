@@ -113,6 +113,12 @@ int animation_count();
 const char* animation_name(int clip_index);
 float animation_duration(int clip_index);
 
+/// @brief Which file a clip came from: 0 for the model's own ANIM chunk, else
+///        the fileId of an imported animation bank
+///        (`ModelFileAnimationBank.imports`). Most rigged models keep only a
+///        zeropose locally and import the rest, so this is usually non-zero.
+uint32_t animation_bank_file(int clip_index);
+
 /// @brief Selects a clip. -1 = bind pose, which uploads an identity palette and
 ///        so leaves every vertex where the archive put it.
 void set_animation(int clip_index);
